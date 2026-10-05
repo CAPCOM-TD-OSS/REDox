@@ -46,15 +46,15 @@ public sealed class DoxDocument : Document
 
     public DoxDocument Duplicate()
     {
+        var doc = CreateSnapshot<DoxDocument>();
+
         if (_rentedBuffer != null)
         {
-            _source = _source.ToArray();
-
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            doc._source = _source.ToArray();
+            doc._rentedBuffer = null;
         }
 
-        return CreateSnapshot<DoxDocument>();
+        return doc;
     }
 
     public static DoxDocument Parse(Stream stream, SerializerSettings? settings = null,

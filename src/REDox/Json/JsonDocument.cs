@@ -218,15 +218,15 @@ public sealed class JsonDocument : Document
 
     public JsonDocument Duplicate()
     {
+        var doc = CreateSnapshot<JsonDocument>();
+
         if (_rentedBuffer != null)
         {
-            _source = _source.ToArray();
-
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            doc._source = _source.ToArray();
+            doc._rentedBuffer = null;
         }
 
-        return CreateSnapshot<JsonDocument>();
+        return doc;
     }
 
     private static JsonWriteOptions NormalizeWriteOptions(JsonWriteOptions options)

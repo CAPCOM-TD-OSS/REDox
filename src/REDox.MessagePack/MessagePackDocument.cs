@@ -26,15 +26,15 @@ public sealed class MessagePackDocument : Document
 
     public MessagePackDocument Duplicate()
     {
+        var doc = CreateSnapshot<MessagePackDocument>();
+
         if (_rentedBuffer != null)
         {
-            _source = _source.ToArray();
-
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            doc._source = _source.ToArray();
+            doc._rentedBuffer = null;
         }
 
-        return CreateSnapshot<MessagePackDocument>();
+        return doc;
     }
 
     protected override void Dispose(bool disposing)

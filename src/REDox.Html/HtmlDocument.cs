@@ -38,15 +38,15 @@ public sealed class HtmlDocument : Document
 
     public HtmlDocument Duplicate()
     {
+        var doc = CreateSnapshot<HtmlDocument>();
+
         if (_rentedBuffer != null)
         {
-            _source = _source.ToArray();
-
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            doc._source = _source.ToArray();
+            doc._rentedBuffer = null;
         }
 
-        return CreateSnapshot<HtmlDocument>();
+        return doc;
     }
 
     protected override void Dispose(bool disposing)

@@ -29,15 +29,15 @@ public sealed class XmlDocument : Document
 
     public XmlDocument Duplicate()
     {
+        var doc = CreateSnapshot<XmlDocument>();
+
         if (_rentedBuffer != null)
         {
-            _source = _source.ToArray();
-
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            doc._source = _source.ToArray();
+            doc._rentedBuffer = null;
         }
 
-        return CreateSnapshot<XmlDocument>();
+        return doc;
     }
 
     protected override void Dispose(bool disposing)

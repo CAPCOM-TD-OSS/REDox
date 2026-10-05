@@ -40,15 +40,15 @@ public sealed class CborDocument : Document
 
     public CborDocument Duplicate()
     {
+        var doc = CreateSnapshot<CborDocument>();
+
         if (_rentedBuffer != null)
         {
-            _source = _source.ToArray();
-
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            doc._source = _source.ToArray();
+            doc._rentedBuffer = null;
         }
 
-        return CreateSnapshot<CborDocument>();
+        return doc;
     }
 
     public static CborDocument Parse(Stream stream, SerializerSettings? settings = null,

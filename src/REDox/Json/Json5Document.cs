@@ -27,15 +27,15 @@ public sealed class Json5Document : Document
 
     public Json5Document Duplicate()
     {
+        var doc = CreateSnapshot<Json5Document>();
+
         if (_rentedBuffer != null)
         {
-            _source = _source.ToArray();
-
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            doc._source = _source.ToArray();
+            doc._rentedBuffer = null;
         }
 
-        return CreateSnapshot<Json5Document>();
+        return doc;
     }
 
     protected override void Dispose(bool disposing)

@@ -233,15 +233,15 @@ public sealed class CsvDocument : Document
 
     public CsvDocument Duplicate()
     {
+        var doc = CreateSnapshot<CsvDocument>();
+
         if (_rentedBuffer != null)
         {
-            _source = _source.ToArray();
-
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            doc._source = _source.ToArray();
+            doc._rentedBuffer = null;
         }
 
-        return CreateSnapshot<CsvDocument>();
+        return doc;
     }
 
     private void Read(ReadOnlyMemory<byte> bytes, CsvDocumentOptions options)

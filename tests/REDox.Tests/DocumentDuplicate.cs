@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System;
+using System.Text;
 using REDox.Json;
 
 namespace REDox.Tests;
@@ -67,5 +68,32 @@ public class DocumentDuplicate
         var doc4 = doc2.Duplicate();
 
         TestContext.Current.TestOutputHelper?.WriteLine(doc2.RootElement.ToString()!);
+    }
+
+    [Fact]
+    public void DuplicateKeepsRentedSourceOwnedByOriginal()
+    {
+        var json = """{"A":"original-value"}""";
+
+        using var doc = JsonDocument.Parse(json);
+        var source = doc.Source;
+
+        using var dup = doc.Duplicate();
+
+        Assert.False(source.Span.Overlaps(dup.Source.Span));
+        Assert.True(source.Span.Overlaps(doc.Source.Span));
+
+        for (var i = 0; i < 16; i++)
+        {
+            using var other = JsonDocument.Parse("""{"Z":"overwritten-xx"}""");
+        }
+
+        Assert.Equal(json, Encoding.UTF8.GetString(source.Span));
+        Assert.Equal(json, doc.RootElement.ToString());
+        Assert.Equal(json, dup.RootElement.ToString());
+
+        doc.Dispose();
+
+        Assert.Equal(json, dup.RootElement.ToString());
     }
 }
