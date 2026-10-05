@@ -259,8 +259,7 @@ public sealed class HtmlDocument : Document
 
     private uint ParseHTML(ReadOnlySpan<byte> chars, HtmlDocumentOptions options)
     {
-        Span<State> stack = stackalloc State[256];
-        var stackPt = 0;
+        using var stack = new LocalStack<State>(stackalloc State[64], options.MaxDepth);
 
         uint parentId = 0;
         uint latestId = 0;
@@ -273,7 +272,11 @@ public sealed class HtmlDocument : Document
         {
             var tokenId = AllocToken(DToken.MakeArray(0));
 
-            stack[stackPt++] = new State(parentId, latestId, Tag.General);
+            if (!stack.Push(new State(parentId, latestId, Tag.General)))
+            {
+                throw new ParseException(this, ParseException.ErrorCode.MaxDepthExceeded, index);
+            }
+
             parentId = tokenId;
             latestId = 0;
         }
@@ -330,7 +333,7 @@ public sealed class HtmlDocument : Document
                                 for (;;)
                                 {
                                     var omit = false;
-                                    var latestTag = stack[stackPt - 1].Tag;
+                                    var latestTag = stack.Peek().Tag;
 
                                     switch (latestTag)
                                     {
@@ -479,7 +482,7 @@ public sealed class HtmlDocument : Document
                                         break;
                                     }
 
-                                    ref var state = ref stack[--stackPt];
+                                    var state = stack.Pop();
                                     parentId = state.ParentId;
                                     latestId = state.LatestId;
                                 }
@@ -618,7 +621,12 @@ public sealed class HtmlDocument : Document
 
                                 if (!empty)
                                 {
-                                    stack[stackPt++] = new State(parentId, latestId, tag);
+                                    if (!stack.Push(new State(parentId, latestId, tag)))
+                                    {
+                                        throw new ParseException(this, ParseException.ErrorCode.MaxDepthExceeded,
+                                            index);
+                                    }
+
                                     parentId = innerId;
                                     latestId = 0;
                                 }
@@ -678,10 +686,10 @@ public sealed class HtmlDocument : Document
 
                                 var tag = ParseTag(chars, ref index);
 
-                                var pt = stackPt;
+                                var pt = stack.Count;
                                 while (pt > 0)
                                 {
-                                    if (stack[--pt].Tag == tag)
+                                    if (stack.Buf[--pt].Tag == tag)
                                     {
                                         break;
                                     }
@@ -689,8 +697,12 @@ public sealed class HtmlDocument : Document
 
                                 if (pt != 0)
                                 {
-                                    stackPt = pt;
-                                    ref var state = ref stack[pt];
+                                    while (stack.Count > pt + 1)
+                                    {
+                                        stack.Pop();
+                                    }
+
+                                    var state = stack.Pop();
                                     parentId = state.ParentId;
                                     latestId = state.LatestId;
                                 }
@@ -1914,7 +1926,8 @@ public sealed class HtmlDocument : Document
         public enum ErrorCode
         {
             None,
-            InvalidFormat
+            InvalidFormat,
+            MaxDepthExceeded
         }
 
         private ErrorCode _errorCode;
