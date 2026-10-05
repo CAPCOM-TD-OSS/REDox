@@ -1198,15 +1198,10 @@ static class Utf8Helper
                     }
                     else
                     {
-                        if (offset == null)
-                        {
-                            value = new DateTime(ticks * 10000L + 621355968000000000L, DateTimeKind.Utc);
-                        }
-                        else
-                        {
-                            value = new DateTime(ticks * 10000L + 621355968000000000L + offset.Value.Ticks,
-                                DateTimeKind.Local);
-                        }
+                        // The milliseconds identify a UTC instant, regardless of the encoded offset.
+                        var utc = new DateTime(ticks * TimeSpan.TicksPerMillisecond + DateTime.UnixEpoch.Ticks,
+                            DateTimeKind.Utc);
+                        value = offset.HasValue ? utc.ToLocalTime() : utc;
                     }
 
                     return true;

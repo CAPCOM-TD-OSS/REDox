@@ -902,6 +902,24 @@ public class Utf8HelperTests
         Assert.Equal(DateTime.UnixEpoch, value);
     }
 
+    [Theory]
+    [InlineData("+0900", 540)]
+    [InlineData("-0500", -300)]
+    [InlineData("+0000", 0)]
+    public void TryParseTimestamp_MicrosoftDateWithOffset_UsesMachineLocalTime(
+        string suffix, int offsetMinutes)
+    {
+        const long milliseconds = 1705285810000;
+        var source = Encoding.UTF8.GetBytes($"/Date({milliseconds}{suffix})/");
+        var expected = DateTimeOffset.FromUnixTimeMilliseconds(milliseconds).LocalDateTime;
+
+        Assert.True(Utf8Helper.TryParseTimestamp(source, out var actual, out var offset, null, false));
+        Assert.Equal(TimeSpan.FromMinutes(offsetMinutes), offset);
+        Assert.Equal(DateTimeKind.Local, actual.Kind);
+        // The milliseconds encode a UTC instant; the suffix must not replace the machine's local offset.
+        Assert.Equal(expected, actual);
+    }
+
     [Fact]
     public void TryParseTimestamp_CustomFormat()
     {
