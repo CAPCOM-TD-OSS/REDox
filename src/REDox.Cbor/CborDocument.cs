@@ -648,6 +648,7 @@ public sealed class CborDocument : Document
                             index += (ushort)param;
                             break;
                         case MiscParam.Infinity:
+                            var totalLength = 0L;
                             while (index < cbor.Length && cbor[index] != 0xff)
                             {
                                 var chunk = cbor[index];
@@ -661,6 +662,12 @@ public sealed class CborDocument : Document
                                 if ((ulong)result.val > (uint)(cbor.Length - index))
                                 {
                                     return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                                }
+
+                                totalLength += result.val;
+                                if (totalLength > maxLength)
+                                {
+                                    return new ParseException(this, ParseException.ErrorCode.TooLargeByteStringLength, index);
                                 }
 
                                 index += (int)result.val;
@@ -745,6 +752,7 @@ public sealed class CborDocument : Document
                             index += (ushort)param;
                             break;
                         case MiscParam.Infinity:
+                            var totalTextLength = 0L;
                             while (index < cbor.Length && cbor[index] != 0xff)
                             {
                                 var chunk = cbor[index];
@@ -758,6 +766,12 @@ public sealed class CborDocument : Document
                                 if ((ulong)result.val > (uint)(cbor.Length - index))
                                 {
                                     return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                                }
+
+                                totalTextLength += result.val;
+                                if (totalTextLength > maxLength)
+                                {
+                                    return new ParseException(this, ParseException.ErrorCode.TooLargeTextStringLength, index);
                                 }
 
                                 index += (int)result.val;

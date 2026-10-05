@@ -151,6 +151,52 @@ public sealed class CborInputValidationTest
     }
 
     [Theory]
+    [InlineData(0x5F, 0x58)]
+    [InlineData(0x7F, 0x78)]
+    public void IndefiniteLengthStringExceedingMaxLengthIsRejected(byte header, byte chunkHeader)
+    {
+        var options = new CborDocumentOptions { MaxLength = 256 };
+        var input = CreateIndefiniteLengthString(header, chunkHeader, 2, 200);
+
+        Assert.ThrowsAny<DocumentParseException>(() =>
+        {
+            using var document = CborDocument.Parse(input, options: options);
+        });
+        Assert.False(CborDocument.TryParse(input, out var result, options: options));
+        Assert.Null(result);
+    }
+
+    [Theory]
+    [InlineData(0x5F, 0x58)]
+    [InlineData(0x7F, 0x78)]
+    public void IndefiniteLengthStringWithinMaxLengthIsAccepted(byte header, byte chunkHeader)
+    {
+        var options = new CborDocumentOptions { MaxLength = 256 };
+        var input = CreateIndefiniteLengthString(header, chunkHeader, 2, 128);
+
+        using var document = CborDocument.Parse(input, options: options);
+        Assert.NotNull(document);
+    }
+
+    private static byte[] CreateIndefiniteLengthString(byte header, byte chunkHeader, int chunkCount, byte chunkLength)
+    {
+        var input = new byte[2 + chunkCount * (2 + chunkLength)];
+        var index = 0;
+        input[index++] = header;
+
+        for (var i = 0; i < chunkCount; i++)
+        {
+            input[index++] = chunkHeader;
+            input[index++] = chunkLength;
+            input.AsSpan(index, chunkLength).Fill((byte)'a');
+            index += chunkLength;
+        }
+
+        input[index] = 0xFF;
+        return input;
+    }
+
+    [Theory]
     [InlineData("", "[]")]
     [InlineData("0181026178", "[1,[2],\"x\"]")]
     [InlineData("9F01FFBF616102FF", "[[1],{\"a\":2}]")]
