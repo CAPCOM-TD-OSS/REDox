@@ -1239,7 +1239,88 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class ListConverter<T, U> : EnumerateConverter<T, U> where T : ICollection<U?>
+    private abstract class CollectionReadConverter<T, U> : EnumerateConverter<T, U>
+        where T : IEnumerable<U?>
+    {
+        protected CollectionReadConverter(DataConverter? itemConverter, SerializerSettings settings)
+            : base(itemConverter, settings)
+        {
+        }
+
+        public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
+        {
+            var token = reader.GetToken(tokenId);
+
+            if (token.Kind == DTokenKind.Null)
+            {
+                return default;
+            }
+
+            if (token.Type == DTokenType.Map)
+            {
+                uint refId = 0;
+                uint typeId = 0;
+                uint valuesId = 0;
+
+                foreach (var kv in reader.EnumerateMap(tokenId))
+                {
+                    var name = reader.ReadUtf8String(kv.Key);
+                    if (name.SequenceEqual(Contract.TypeDiscriminatorPropertyName))
+                    {
+                        typeId = kv.Value;
+                    }
+                    else if (name.SequenceEqual(Utf8Helper.ValuesTag))
+                    {
+                        valuesId = kv.Value;
+                    }
+                    else if (name.SequenceEqual(Utf8Helper.IdTag))
+                    {
+                        refId = kv.Value;
+                    }
+                    else if (name.SequenceEqual(Utf8Helper.RefTag))
+                    {
+                        return (T?)reader.ReadReference(kv.Value);
+                    }
+                }
+
+                if (valuesId == 0)
+                {
+                    throw new InvalidOperationException();
+                }
+
+                var list = existingValue;
+
+                if (typeId != 0)
+                {
+                    var typeConverter = reader.Settings.GetConverter(Contract, reader.ReadUtf8String(typeId));
+
+                    if (list != null && !list.GetType().IsAssignableTo(typeConverter.TargetType))
+                    {
+                        list = default;
+                    }
+
+                    list = (T?)typeConverter.ReadObject(in reader, typeof(T), valuesId, list);
+                }
+                else
+                {
+                    list = ReadItems(in reader, valuesId, list);
+                }
+
+                if (refId > 0 && list != null)
+                {
+                    reader.AddReference(refId, list);
+                }
+
+                return list;
+            }
+
+            return ReadItems(in reader, tokenId, existingValue);
+        }
+
+        protected abstract T? ReadItems(in DataReader reader, uint tokenId, T? existingValue);
+    }
+
+    private class ListConverter<T, U> : CollectionReadConverter<T, U> where T : ICollection<U?>
     {
         private readonly Func<int, T>? _generator;
         private readonly bool _szArray;
@@ -1259,13 +1340,8 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             }
         }
 
-        public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
+        protected override T? ReadItems(in DataReader reader, uint tokenId, T? existingValue)
         {
-            if (reader.ReadTypedArray(Contract, tokenId, ref existingValue))
-            {
-                return existingValue;
-            }
-
             var list = existingValue;
             var converter = Converter;
 
@@ -1355,7 +1431,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class SetConverter<T, U> : EnumerateConverter<T, U> where T : ISet<U?>
+    private class SetConverter<T, U> : CollectionReadConverter<T, U> where T : ISet<U?>
     {
         private readonly Func<T>? _Generator;
 
@@ -1372,13 +1448,8 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             }
         }
 
-        public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
+        protected override T? ReadItems(in DataReader reader, uint tokenId, T? existingValue)
         {
-            if (reader.ReadTypedArray(Contract, tokenId, ref existingValue))
-            {
-                return existingValue;
-            }
-
             var list = existingValue;
             var converter = Converter;
 
@@ -1396,7 +1467,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             {
                 try
                 {
-                    list.Add(Converter.Read(reader, valueId, default));
+                    list.Add(converter.Read(reader, valueId, default));
                 }
                 catch (Exception e)
                 {
@@ -1433,7 +1504,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class LinkListConverter<T, U> : EnumerateConverter<T, U> where T : LinkedList<U?>
+    private class LinkListConverter<T, U> : CollectionReadConverter<T, U> where T : LinkedList<U?>
     {
         private readonly Func<T> _Generator;
 
@@ -1443,13 +1514,8 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             _Generator = CreateFactory();
         }
 
-        public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
+        protected override T? ReadItems(in DataReader reader, uint tokenId, T? existingValue)
         {
-            if (reader.ReadTypedArray(Contract, tokenId, ref existingValue))
-            {
-                return existingValue;
-            }
-
             var list = existingValue;
             var converter = Converter;
 
@@ -1480,7 +1546,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class ReadOnlyCollectionConverter<T, U> : EnumerateConverter<T, U> where T : IReadOnlyCollection<U>
+    private class ReadOnlyCollectionConverter<T, U> : CollectionReadConverter<T, U> where T : IReadOnlyCollection<U>
     {
         private readonly Func<U?[], T> _factory;
         private readonly bool _includeDerived;
@@ -1514,11 +1580,11 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
                 return (T?)reader.ReadObject(tokenId, existingValue.GetType(), existingValue);
             }
 
-            if (reader.ReadTypedArray(Contract, tokenId, ref existingValue))
-            {
-                return existingValue;
-            }
+            return base.Read(in reader, tokenId, existingValue);
+        }
 
+        protected override T? ReadItems(in DataReader reader, uint tokenId, T? existingValue)
+        {
             var converter = Converter;
             var count = reader.GetValueCount(tokenId);
             var list = new U?[count];
@@ -1551,7 +1617,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class ProducerConsumerCollectionConverter<T, U> : EnumerateConverter<T, U>
+    private class ProducerConsumerCollectionConverter<T, U> : CollectionReadConverter<T, U>
         where T : IProducerConsumerCollection<U?>
     {
         private readonly Func<U?[], T> _factory;
@@ -1579,11 +1645,11 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
                 return (T?)reader.ReadObject(tokenId, existingValue.GetType(), existingValue);
             }
 
-            if (reader.ReadTypedArray(Contract, tokenId, ref existingValue))
-            {
-                return existingValue;
-            }
+            return base.Read(in reader, tokenId, existingValue);
+        }
 
+        protected override T? ReadItems(in DataReader reader, uint tokenId, T? existingValue)
+        {
             var converter = Converter;
 
             if (existingValue != null)
@@ -1627,7 +1693,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class IEnumerableConverter<T, U> : EnumerateConverter<T, U> where T : IEnumerable<U>
+    private class IEnumerableConverter<T, U> : CollectionReadConverter<T, U> where T : IEnumerable<U>
     {
         private readonly bool _includeDerived;
         private readonly bool _szArray;
@@ -1646,12 +1712,11 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
                 return (T?)reader.ReadObject(tokenId, existingValue.GetType(), existingValue);
             }
 
-            T? value = default;
-            if (reader.ReadTypedArray(Contract, tokenId, ref value))
-            {
-                return value;
-            }
+            return base.Read(in reader, tokenId, default);
+        }
 
+        protected override T? ReadItems(in DataReader reader, uint tokenId, T? existingValue)
+        {
             var count = reader.GetValueCount(tokenId);
             var converter = Converter;
 
@@ -1789,9 +1854,11 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
 
         public override object? ReadObject(in DataReader reader, Type objectType, uint tokenId, object? existingValue)
         {
-            if (reader.GetToken(tokenId).Kind == DTokenKind.Null)
+            var token = reader.GetToken(tokenId);
+
+            if (token.Kind == DTokenKind.Null)
             {
-                return existingValue;
+                return null;
             }
 
             if (_kind != CollectionKind.Mutable &&
@@ -1802,11 +1869,67 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
                 return reader.ReadObject(tokenId, existingValue.GetType(), existingValue);
             }
 
-            if (reader.ReadTypedArray(_contract, objectType, tokenId, ref existingValue))
+            if (token.Type == DTokenType.Map)
             {
-                return existingValue;
+                uint refId = 0;
+                uint typeId = 0;
+                uint valuesId = 0;
+
+                foreach (var kv in reader.EnumerateMap(tokenId))
+                {
+                    var name = reader.ReadUtf8String(kv.Key);
+                    if (name.SequenceEqual(_contract.TypeDiscriminatorPropertyName))
+                    {
+                        typeId = kv.Value;
+                    }
+                    else if (name.SequenceEqual(Utf8Helper.ValuesTag))
+                    {
+                        valuesId = kv.Value;
+                    }
+                    else if (name.SequenceEqual(Utf8Helper.IdTag))
+                    {
+                        refId = kv.Value;
+                    }
+                    else if (name.SequenceEqual(Utf8Helper.RefTag))
+                    {
+                        return reader.ReadReference(kv.Value);
+                    }
+                }
+
+                if (valuesId == 0)
+                {
+                    throw new InvalidOperationException();
+                }
+
+                object? collection;
+                if (typeId != 0)
+                {
+                    var typeConverter = reader.Settings.GetConverter(_contract, reader.ReadUtf8String(typeId));
+                    if (existingValue != null && !existingValue.GetType().IsAssignableTo(typeConverter.TargetType))
+                    {
+                        existingValue = null;
+                    }
+
+                    collection = typeConverter.ReadObject(in reader, objectType, valuesId, existingValue);
+                }
+                else
+                {
+                    collection = ReadItems(reader, objectType, valuesId, existingValue);
+                }
+
+                if (refId > 0 && collection != null)
+                {
+                    reader.AddReference(refId, collection);
+                }
+
+                return collection;
             }
 
+            return ReadItems(reader, objectType, tokenId, existingValue);
+        }
+
+        private object? ReadItems(DataReader reader, Type objectType, uint tokenId, object? existingValue)
+        {
             if (_kind != CollectionKind.Mutable)
             {
                 return ReadImmutable(reader, objectType, tokenId);
