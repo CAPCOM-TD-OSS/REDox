@@ -300,16 +300,42 @@ public sealed class Utf8TextWriter : IDisposable, IAsyncDisposable
         w.EndWrite(Utf8Helper.EncodeNumber(w.BeginWrite(32), value));
     }
 
+    /// <summary>Writes a date and time using the serializer's date format, culture, and zone settings.</summary>
+    public void WriteDateTime(DateTime value)
+    {
+        Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+        var success = Utf8Helper.TryFormatTimestamp(value, Settings, buffer, out var bytesWritten);
+        Debug.Assert(success);
+        WriteString(buffer.Slice(0, bytesWritten));
+    }
+
+    /// <summary>Writes a date and time using the serializer's date format and culture, preserving its offset.</summary>
+    public void WriteDateTimeOffset(DateTimeOffset value)
+    {
+        Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+        var success = Utf8Helper.TryFormatTimestamp(value, Settings, buffer, out var bytesWritten);
+        Debug.Assert(success);
+        WriteString(buffer.Slice(0, bytesWritten));
+    }
+
+    /// <summary>Writes an ISO timestamp of the specified kind, independently of serializer date settings.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void WriteTimestamp(DateTime value, TimestampKind kind = TimestampKind.Default)
     {
-        Utf8Helper.WriteTimestamp(_writer, kind, value);
+        Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+        var success = Utf8Helper.TryFormatTimestamp(value, kind, buffer, out var bytesWritten);
+        Debug.Assert(success);
+        WriteString(buffer.Slice(0, bytesWritten));
     }
 
+    /// <summary>Writes an ISO timestamp preserving its offset, independently of serializer date settings.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void WriteTimestamp(DateTimeOffset value)
     {
-        Utf8Helper.WriteTimestamp(_writer, value);
+        Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+        var success = Utf8Helper.TryFormatTimestamp(value, buffer, out var bytesWritten);
+        Debug.Assert(success);
+        WriteString(buffer.Slice(0, bytesWritten));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

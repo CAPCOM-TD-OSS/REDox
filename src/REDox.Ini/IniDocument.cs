@@ -4,6 +4,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
@@ -725,15 +726,12 @@ public sealed class IniDocument : Document
 
                 break;
             case DTokenKind.Timestamp:
-                if (value.Variant == DTokenVariant.TimestampOffsetDateTime)
                 {
-                    writer.WriteTimestamp(reader.ReadDateTimeOffset(kv.Value));
+                    Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+                    var success = Utf8Helper.TryFormatTimestamp(reader, kv.Value, buffer, out var bytesWritten);
+                    Debug.Assert(success);
+                    writer.WriteString(buffer.Slice(0, bytesWritten));
                 }
-                else
-                {
-                    writer.WriteTimestamp(reader.ReadDateTime(kv.Value), value.TimestampKind);
-                }
-
                 break;
             case DTokenKind.Boolean:
                 writer.WriteBoolean(reader.ReadBoolean(kv.Value));

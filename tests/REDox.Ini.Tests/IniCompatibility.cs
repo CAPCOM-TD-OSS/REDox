@@ -1,4 +1,7 @@
-﻿using REDox.Json;
+﻿using System;
+using System.Globalization;
+using Newtonsoft.Json;
+using REDox.Json;
 
 namespace REDox.Ini.Tests;
 
@@ -266,6 +269,172 @@ public class IniCompatibility
         var ini = IniDocument.EncodeToString(value);
 
         TestContext.Current.TestOutputHelper?.WriteLine(ini);
+    }
+
+    [Theory]
+    [InlineData(false, 0, "2026-10-04T12:34:56")]
+    [InlineData(true, 0, "2026-10-04T12:34:56")]
+    [InlineData(false, 123, "2026-10-04T12:34:56.123")]
+    [InlineData(true, 123, "2026-10-04T12:34:56.123")]
+    public void EncodeToStringWithDateTime(bool inSection, int milliseconds, string expectedTimestamp)
+    {
+        using var doc = IniDocument.Parse(inSection ? "[dates]\nDate=\n" : "Date=\n");
+        var root = doc.RootElement.AsObject();
+        var properties = inSection ? root["dates"].AsObject() : root;
+        var date = new DateTime(2026, 10, 4, 12, 34, 56, milliseconds, DateTimeKind.Unspecified);
+
+        // Store a timestamp value in the parsed document, rather than a formatted string.
+        properties["Date"] = date;
+        Assert.Equal(DTokenKind.Timestamp, properties["Date"].GetToken().Kind);
+
+        var ini = IniDocument.EncodeToString(doc.RootElement, new IniWriteOptions { NewLine = "\n" });
+
+        Assert.Equal((inSection ? "[dates]\n" : string.Empty) + "Date=" + expectedTimestamp, ini);
+
+        using var reparsed = IniDocument.Parse(ini);
+        var parsedProperties = inSection ? reparsed.RootElement.GetProperty("dates") : reparsed.RootElement;
+        Assert.Equal(expectedTimestamp, parsedProperties.GetProperty("Date").GetString());
+    }
+
+    [Fact]
+    public void EncodeToStringWithDateTimeUsesFormatAndCulture()
+    {
+        var settings = new DoxSerializerSettings
+        {
+            DateFormatString = "dd MMMM yyyy HH:mm:ss.FFFFFFF",
+            Culture = CultureInfo.GetCultureInfo("fr-FR"),
+            DateFormatHandling = Serialization.DateFormatHandling.MicrosoftDateFormat
+        };
+        using var doc = IniDocument.Parse("[dates]\nDate=\n", settings);
+        doc.RootElement.AsObject()["dates"].AsObject()["Date"] =
+            new DateTime(2026, 10, 4, 12, 34, 56).AddTicks(1234567);
+
+        var ini = IniDocument.EncodeToString(doc.RootElement, new IniWriteOptions { NewLine = "\n" });
+
+        Assert.Equal("[dates]\nDate=04 octobre 2026 12:34:56.1234567", ini);
+        using var reparsed = IniDocument.Parse(ini);
+        Assert.Equal("04 octobre 2026 12:34:56.1234567",
+            reparsed.RootElement.GetProperty("dates").GetProperty("Date").GetString());
+    }
+
+    [Theory]
+    [InlineData(DateTimeKind.Unspecified, Serialization.DateTimeZoneHandling.RoundtripKind)]
+    [InlineData(DateTimeKind.Utc, Serialization.DateTimeZoneHandling.RoundtripKind)]
+    [InlineData(DateTimeKind.Local, Serialization.DateTimeZoneHandling.RoundtripKind)]
+    [InlineData(DateTimeKind.Local, Serialization.DateTimeZoneHandling.Utc)]
+    [InlineData(DateTimeKind.Utc, Serialization.DateTimeZoneHandling.Local)]
+    [InlineData(DateTimeKind.Unspecified, Serialization.DateTimeZoneHandling.Utc)]
+    [InlineData(DateTimeKind.Unspecified, Serialization.DateTimeZoneHandling.Local)]
+    [InlineData(DateTimeKind.Utc, Serialization.DateTimeZoneHandling.Unspecified)]
+    public void EncodeToStringWithDateTimeHonorsZoneHandling(DateTimeKind kind, Serialization.DateTimeZoneHandling zone)
+    {
+        var settings = new DoxSerializerSettings { DateTimeZoneHandling = zone };
+        var date = new DateTime(2026, 10, 4, 12, 34, 56, kind).AddTicks(1);
+        using var doc = IniDocument.Parse("Date=\n", settings);
+        doc.RootElement.AsObject()["Date"] = date;
+
+        var json = JsonConvert.SerializeObject(date, new JsonSerializerSettings
+        {
+            DateTimeZoneHandling = (DateTimeZoneHandling)zone
+        });
+        var expected = "Date=" + JsonConvert.DeserializeObject<string>(json);
+
+        Assert.Equal(expected, IniDocument.EncodeToString(doc.RootElement));
+        // Typed serialization and direct DOM insertion must produce the same timestamp.
+        Assert.Equal(expected, IniDocument.EncodeToString(DValue.From(new { Date = date }, settings)));
+    }
+
+    [Fact]
+    public void EncodeToStringWithDateTimeUsesMicrosoftFormat()
+    {
+        using var doc = IniDocument.Parse("Date=\n", new DoxSerializerSettings
+        {
+            DateFormatHandling = Serialization.DateFormatHandling.MicrosoftDateFormat
+        });
+        doc.RootElement.AsObject()["Date"] = DateTime.UnixEpoch;
+
+        Assert.Equal("Date=/Date(0)/", IniDocument.EncodeToString(doc.RootElement));
+    }
+
+    [Theory]
+    [InlineData(64)]
+    [InlineData(65)]
+    public void EncodeToStringWithDateFormatAtBufferBoundary(int length)
+    {
+        var literal = new string('x', length);
+        using var doc = IniDocument.Parse("Date=\n", new DoxSerializerSettings
+        {
+            DateFormatString = "'" + literal + "'"
+        });
+        doc.RootElement.AsObject()["Date"] =
+            new DateTime(2026, 10, 4, 12, 34, 56, DateTimeKind.Utc).AddTicks(1);
+
+        // A custom value that fits is preserved; overflow must produce an ISO timestamp.
+        var expected = length == 64 ? literal : "2026-10-04T12:34:56.0000001Z";
+        Assert.Equal("Date=" + expected, IniDocument.EncodeToString(doc.RootElement));
+    }
+
+    [Fact]
+    public void EncodeToStringWithLongDateFormatFallsBackToIso()
+    {
+        using var doc = IniDocument.Parse("[dates]\nDate=\n", new DoxSerializerSettings
+        {
+            DateFormatString = "yyyy '" + new string('あ', 80) + "'",
+            DateFormatHandling = Serialization.DateFormatHandling.MicrosoftDateFormat,
+            DateTimeZoneHandling = Serialization.DateTimeZoneHandling.Utc
+        });
+        doc.RootElement.AsObject()["dates"].AsObject()["Date"] =
+            new DateTime(2026, 10, 4, 12, 34, 56).AddTicks(1);
+
+        Assert.Equal("[dates]\nDate=2026-10-04T12:34:56.0000001Z",
+            IniDocument.EncodeToString(doc.RootElement, new IniWriteOptions { NewLine = "\n" }));
+    }
+
+    [Theory]
+    [InlineData(TimestampKind.LocalDate, "2026-10-04")]
+    [InlineData(TimestampKind.LocalTime, "12:34:56.0000001")]
+    [InlineData(TimestampKind.LocalDateTime, "2026-10-04T12:34:56.0000001")]
+    [InlineData(TimestampKind.OffsetDateTime, "2026-10-04T12:34:56.0000001+00:00")]
+    public void EncodeToStringWithExplicitTimestampKindUsesIso(TimestampKind kind, string expected)
+    {
+        using var doc = IniDocument.Parse("Date=\n", new DoxSerializerSettings
+        {
+            Culture = CultureInfo.GetCultureInfo("fr-FR"),
+            DateFormatString = "dddd",
+            DateFormatHandling = Serialization.DateFormatHandling.MicrosoftDateFormat,
+            DateTimeZoneHandling = Serialization.DateTimeZoneHandling.Local
+        });
+        doc.RootElement.AsObject()["Date"] =
+            DValue.Create(new DateTime(2026, 10, 4, 12, 34, 56, DateTimeKind.Utc).AddTicks(1), kind);
+
+        Assert.Equal(kind, doc.RootElement.GetProperty("Date").AsValue().GetToken().TimestampKind);
+        Assert.Equal("Date=" + expected, IniDocument.EncodeToString(doc.RootElement));
+    }
+
+    [Fact]
+    public void EncodeToStringWithDateTimeOffsetPreservesOffset()
+    {
+        using var doc = IniDocument.Parse("Date=\n", new DoxSerializerSettings
+        {
+            DateFormatString = "yyyy",
+            DateTimeZoneHandling = Serialization.DateTimeZoneHandling.Utc
+        });
+        doc.RootElement.AsObject()["Date"] =
+            new DateTimeOffset(2026, 10, 4, 12, 34, 56, TimeSpan.FromMinutes(330)).AddTicks(1234567);
+
+        Assert.Equal("Date=2026-10-04T12:34:56.1234567+05:30", IniDocument.EncodeToString(doc.RootElement));
+    }
+
+    [Fact]
+    public void EncodeToStringWithInheritedTimestampKindPreservesDateOnly()
+    {
+        using var doc = IniDocument.Parse("Date=\n", new DoxSerializerSettings { DateFormatString = "yyyy" });
+        var properties = doc.RootElement.AsObject();
+        properties["Date"] = DValue.Create(new DateTime(2025, 1, 1), TimestampKind.LocalDate);
+        properties["Date"] = new DateTime(2026, 10, 4, 12, 34, 56);
+
+        Assert.Equal(TimestampKind.LocalDate, properties["Date"].GetToken().TimestampKind);
+        Assert.Equal("Date=2026-10-04", IniDocument.EncodeToString(doc.RootElement));
     }
 
     [Theory]

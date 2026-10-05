@@ -3,6 +3,7 @@
 
 using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
@@ -471,6 +472,7 @@ public sealed class CsvDocument : Document
             separatorChar = ',';
         }
 
+        Span<byte> timestampBuffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
         foreach (var valueId in reader.EnumerateArray(tokenId))
         {
             var valueToken = reader.GetToken(valueId);
@@ -554,8 +556,12 @@ public sealed class CsvDocument : Document
                                 writer.WriteString(reader.ReadBigNumber(v));
                                 break;
                             case DTokenKind.Timestamp:
-                                writer.WriteTimestamp(
-                                    reader.ReadDateTime(v), reader.GetToken(v).TimestampKind);
+                                {
+                                    var success = Utf8Helper.TryFormatTimestamp(reader, v, timestampBuffer, out var bytesWritten);
+                                    Debug.Assert(success);
+                                    // Custom date formats can contain delimiters, quotes, or line breaks.
+                                    WriteCsvString(writer, timestampBuffer.Slice(0, bytesWritten), (byte)separatorChar);
+                                }
                                 break;
                             case DTokenKind.Null:
                                 writer.WriteNull();

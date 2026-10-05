@@ -244,46 +244,33 @@ public sealed class JsonWriter : DataWriter, IDisposable, IAsyncDisposable
 
     public override void WriteDateTime(DateTime value)
     {
-        Span<byte> buf = stackalloc byte[64];
-
-        if (Utf8Helper.TryFormatTimestamp(value, null, Settings.DateFormatString, Settings.Culture,
-                Settings.DateFormatHandling, buf,
-                out var bytes))
+        Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+        var success = Utf8Helper.TryFormatTimestamp(value, null, Settings.DateFormatString, Settings.Culture,
+            Settings.DateFormatHandling, buffer, out var bytes);
+        Debug.Assert(success);
+        if (!string.IsNullOrEmpty(Settings.DateFormatString))
         {
-            if (!string.IsNullOrEmpty(Settings.DateFormatString))
-            {
-                WriteString(buf.Slice(0, bytes));
-            }
-            else
-            {
-                WriteRawString(buf.Slice(0, bytes));
-            }
+            WriteString(buffer.Slice(0, bytes));
         }
         else
         {
-            WriteNull();
+            WriteRawString(buffer.Slice(0, bytes));
         }
     }
 
     public override void WriteDateTimeOffset(DateTimeOffset value)
     {
-        Span<byte> buf = stackalloc byte[64];
-
-        if (Utf8Helper.TryFormatTimestamp(value.DateTime, value.Offset, Settings.DateFormatString, Settings.Culture,
-                Settings.DateFormatHandling, buf, out var bytes))
+        Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+        var success = Utf8Helper.TryFormatTimestamp(value.DateTime, value.Offset, Settings.DateFormatString, Settings.Culture,
+            Settings.DateFormatHandling, buffer, out var bytes);
+        Debug.Assert(success);
+        if (!string.IsNullOrEmpty(Settings.DateFormatString))
         {
-            if (!string.IsNullOrEmpty(Settings.DateFormatString))
-            {
-                WriteString(buf.Slice(0, bytes));
-            }
-            else
-            {
-                WriteRawString(buf.Slice(0, bytes));
-            }
+            WriteString(buffer.Slice(0, bytes));
         }
         else
         {
-            WriteNull();
+            WriteRawString(buffer.Slice(0, bytes));
         }
     }
 

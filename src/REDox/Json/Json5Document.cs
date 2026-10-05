@@ -5,6 +5,7 @@ using System;
 using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -2085,57 +2086,15 @@ public sealed class Json5Document : Document
                         }
                         else
                         {
-                            writer.WriteUtf8Byte((byte)qc);
-
-                            switch (token.TimestampKind)
-                            {
-                                case TimestampKind.OffsetDateTime:
-                                    WriteTimestampString(writer, reader.ReadDateTimeOffset(tokenId),
-                                        reader.Settings.DateFormatHandling, reader.Settings.DateFormatString,
-                                        reader.Settings);
-                                    break;
-                                case TimestampKind.Default:
-                                    WriteTimestampString(writer, reader.ReadDateTime(tokenId),
-                                        reader.Settings.DateFormatHandling,
-                                        reader.Settings.DateFormatString, reader.Settings);
-                                    break;
-                                default:
-                                    writer.WriteTimestamp(reader.ReadDateTime(tokenId),
-                                        token.TimestampKind);
-                                    break;
-                            }
-
-                            writer.WriteUtf8Byte((byte)qc);
+                            Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+                            var success = Utf8Helper.TryFormatTimestamp(reader, tokenId, buffer, out var bytesWritten);
+                            Debug.Assert(success);
+                            // Escape the formatted value using the selected JSON5 quote style.
+                            WriteJson5String(writer, buffer.Slice(0, bytesWritten), encoder, qc);
                         }
                     }
                     break;
             }
-        }
-    }
-
-    private static void WriteTimestampString(Utf8TextWriter writer, DateTime dateTime, DateFormatHandling dateFormat,
-        string? dateFormatString, SerializerSettings settings)
-    {
-        var buf = writer.BeginWriteUtf8Bytes(64 + 2);
-
-        if (Utf8Helper.TryFormatTimestamp(dateTime, null, dateFormatString, settings.Culture, dateFormat, buf,
-                out var bytesWritten))
-        {
-            writer.EndWriteUtf8Bytes(bytesWritten);
-        }
-    }
-
-    private static void WriteTimestampString(Utf8TextWriter writer, DateTimeOffset dateTime,
-        DateFormatHandling dateFormat,
-        string? dateFormatString, SerializerSettings settings)
-    {
-        var buf = writer.BeginWriteUtf8Bytes(64 + 2);
-
-        if (Utf8Helper.TryFormatTimestamp(dateTime.DateTime, dateTime.Offset, dateFormatString, settings.Culture,
-                dateFormat, buf,
-                out var bytesWritten))
-        {
-            writer.EndWriteUtf8Bytes(bytesWritten);
         }
     }
 

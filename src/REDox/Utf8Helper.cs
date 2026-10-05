@@ -14,6 +14,7 @@ namespace REDox;
 
 static class Utf8Helper
 {
+    public const int TimestampBufferSize = 64;
     public static readonly Utf8Symbol ValueTag = new("$value");
     public static readonly Utf8Symbol ValuesTag = new("$values");
     public static readonly Utf8Symbol RefTag = new("$ref");
@@ -345,87 +346,102 @@ static class Utf8Helper
         }
     }
 
-    public static void WriteTimestamp(DocumentWriter w, TimestampKind type, DateTime datetime)
+    public static bool TryFormatTimestamp(DateTime value, SerializerSettings settings,
+        Span<byte> bytes, out int bytesWritten)
     {
-        var ss = string.Empty;
-
-        if (type == TimestampKind.OffsetDateTime)
+        // DOM timestamp values can bypass the type converter's zone handling.
+        value = settings.DateTimeZoneHandling switch
         {
-            if (datetime.Kind == DateTimeKind.Utc)
-            {
-                if (datetime.Millisecond > 0)
-                {
-                    ss = datetime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
-                }
-                else
-                {
-                    ss = datetime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
-                }
-            }
-            else
-            {
-                if (datetime.Millisecond > 0)
-                {
-                    ss = datetime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffffzzz", CultureInfo.InvariantCulture);
-                }
-                else
-                {
-                    ss = datetime.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture);
-                }
-            }
-        }
-        else
-        {
-            var localDate = datetime;
+            DateTimeZoneHandling.Local => value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Local)
+                : value.ToLocalTime(),
+            DateTimeZoneHandling.Utc => value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                : value.ToUniversalTime(),
+            DateTimeZoneHandling.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Unspecified),
+            _ => value
+        };
 
-            if (type == TimestampKind.LocalDate)
-            {
-                ss = localDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            }
-            else
-            {
-                if (type == TimestampKind.LocalTime)
-                {
-                    if (localDate.Millisecond > 0)
-                    {
-                        ss = localDate.ToString("HH:mm:ss.FFFFFF", CultureInfo.InvariantCulture);
-                    }
-                    else
-                    {
-                        ss = localDate.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
-                    }
-                }
-                else
-                {
-                    if (localDate.Millisecond > 0)
-                    {
-                        ss = localDate.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFF", CultureInfo.InvariantCulture);
-                    }
-                    else
-                    {
-                        ss = localDate.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
-                    }
-                }
-            }
-        }
-
-        WriteString(w, ss);
+        return TryFormatTextTimestamp(value, null, settings, bytes, out bytesWritten);
     }
 
-    public static void WriteTimestamp(DocumentWriter w, DateTimeOffset dateTimeOffset)
+    public static bool TryFormatTimestamp(DateTimeOffset value, SerializerSettings settings,
+        Span<byte> bytes, out int bytesWritten)
     {
-        string ss;
+        return TryFormatTextTimestamp(value.DateTime, value.Offset, settings, bytes, out bytesWritten);
+    }
 
-        if (dateTimeOffset.Millisecond > 0)
+    private static bool TryFormatTextTimestamp(DateTime value, TimeSpan? offset, SerializerSettings settings,
+        Span<byte> bytes, out int bytesWritten)
+    {
+        if (string.IsNullOrEmpty(settings.DateFormatString) &&
+            settings.DateFormatHandling == DateFormatHandling.MicrosoftDateFormat &&
+            bytes.Length < TimestampBufferSize)
         {
-            ss = dateTimeOffset.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffffzzz", CultureInfo.InvariantCulture);
-        }
-        else
-        {
-            ss = dateTimeOffset.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture);
+            // A text buffer can fit the value while being too small for JSON's two escape bytes.
+            Span<byte> buffer = stackalloc byte[TimestampBufferSize];
+            if (!TryFormatTimestamp(value, offset, null, settings.Culture,
+                    settings.DateFormatHandling, buffer, out var length) || bytes.Length < length - 2)
+            {
+                bytesWritten = 0;
+                return false;
+            }
+
+            buffer.Slice(1, length - 3).CopyTo(bytes);
+            bytesWritten = length - 2;
+            bytes[bytesWritten - 1] = (byte)'/';
+            return true;
         }
 
-        WriteString(w, ss);
+        if (!TryFormatTimestamp(value, offset, settings.DateFormatString, settings.Culture,
+                settings.DateFormatHandling, bytes, out bytesWritten))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(settings.DateFormatString) &&
+            settings.DateFormatHandling == DateFormatHandling.MicrosoftDateFormat)
+        {
+            // The JSON formatter escapes slashes; text consumers need the literal UTF-8 value.
+            bytes.Slice(1, bytesWritten - 2).CopyTo(bytes);
+            bytesWritten -= 2;
+            bytes[bytesWritten - 1] = (byte)'/';
+        }
+
+        return true;
+    }
+
+    public static bool TryFormatTimestamp(DateTime value, TimestampKind kind, Span<byte> bytes, out int bytesWritten)
+    {
+        var format = kind switch
+        {
+            TimestampKind.OffsetDateTime => value.Kind == DateTimeKind.Utc
+                ? "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'"
+                : "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz",
+            TimestampKind.LocalDate => "yyyy-MM-dd",
+            TimestampKind.LocalTime => "HH:mm:ss.FFFFFFF",
+            _ => "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF"
+        };
+
+        return value.TryFormat(bytes, out bytesWritten, format, CultureInfo.InvariantCulture);
+    }
+
+    public static bool TryFormatTimestamp(DateTimeOffset value, Span<byte> bytes, out int bytesWritten)
+    {
+        return value.TryFormat(bytes, out bytesWritten, "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz", CultureInfo.InvariantCulture);
+    }
+
+    public static bool TryFormatTimestamp(in DataReader reader, uint tokenId, Span<byte> bytes, out int bytesWritten)
+    {
+        // Explicit kinds keep their ISO representation; default timestamps use serializer settings.
+        var kind = reader.GetToken(tokenId).TimestampKind;
+        return kind switch
+        {
+            TimestampKind.OffsetDateTime => TryFormatTimestamp(reader.ReadDateTimeOffset(tokenId), bytes, out bytesWritten),
+            TimestampKind.Default or TimestampKind.Inherit =>
+                TryFormatTimestamp(reader.ReadDateTime(tokenId), reader.Settings, bytes, out bytesWritten),
+            _ => TryFormatTimestamp(reader.ReadDateTime(tokenId), kind, bytes, out bytesWritten)
+        };
     }
 
     public static bool TryFormatHexadecimal(long value, Span<byte> destination, out int bytesWritten)
@@ -750,18 +766,30 @@ static class Utf8Helper
 
         if (!string.IsNullOrEmpty(dateFormatString))
         {
-            var str = string.Empty;
-
-            if (offset == null)
+            var success = offset == null
+                ? dateTime.TryFormat(destination, out bytesWritten, dateFormatString, culture)
+                : new DateTimeOffset(dateTime, offset.Value).TryFormat(destination, out bytesWritten, dateFormatString, culture);
+            if (success)
             {
-                str = dateTime.ToString(dateFormatString, culture);
-            }
-            else
-            {
-                str = new DateTimeOffset(dateTime, offset.Value).ToString(dateFormatString, culture);
+                return true;
             }
 
-            bytesWritten = Encoding.UTF8.GetBytes(str, destination);
+            // ISO timestamps always fit in the standard 64-byte buffer, even when the custom format does not.
+            return TryFormatTimestamp(dateTime, offset, null, CultureInfo.InvariantCulture,
+                DateFormatHandling.IsoDateFormat, destination, out bytesWritten);
+        }
+
+        if (destination.Length < TimestampBufferSize)
+        {
+            Span<byte> buffer = stackalloc byte[TimestampBufferSize];
+            if (!TryFormatTimestamp(dateTime, offset, null, culture, format, buffer, out var length) ||
+                !buffer.Slice(0, length).TryCopyTo(destination))
+            {
+                bytesWritten = 0;
+                return false;
+            }
+
+            bytesWritten = length;
             return true;
         }
 
