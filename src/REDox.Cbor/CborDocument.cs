@@ -16,6 +16,8 @@ namespace REDox.Cbor;
 
 public sealed class CborDocument : Document
 {
+    private const int MaxLength = 0x1000000;
+    private const int MinLength = 256;
     private byte[]? _rentedBuffer;
     private ReadOnlyMemory<byte> _source;
 
@@ -159,7 +161,17 @@ public sealed class CborDocument : Document
         document = new CborDocument(settings);
         document.EnsureCapacity(cbor.Length / 8);
 
-        var error = document.ParseCbor(cbor.Span, out var bytesConsumed, options);
+        ParseException? error;
+        int bytesConsumed;
+        try
+        {
+            error = document.ParseCbor(cbor.Span, out bytesConsumed, options);
+        }
+        catch (ParseException ex)
+        {
+            error = ex;
+            bytesConsumed = 0;
+        }
 
         if (error != null)
         {
@@ -512,6 +524,7 @@ public sealed class CborDocument : Document
         var parentId = 0U;
         var latestId = 0U;
         var tokenId = 0U;
+        var maxLength = options.MaxLength > 0 ? Math.Max(MinLength, options.MaxLength) : MaxLength;
 
         using var stack =
             new Helper.LocalStack<(uint pid, uint lid, int count)>(stackalloc (uint pid, uint lid, int count)[64],
@@ -538,18 +551,38 @@ public sealed class CborDocument : Document
             switch (c & 0x1f)
             {
                 case 24:
+                    if (cbor.Length - index < 1)
+                    {
+                        return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                    }
+
                     param = (MiscParam)cbor[index];
                     index++;
                     break;
                 case 25:
+                    if (cbor.Length - index < 2)
+                    {
+                        return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                    }
+
                     param = (MiscParam)((cbor[index] << 8) | cbor[index + 1]);
                     index += 2;
                     break;
                 case 26:
+                    if (cbor.Length - index < 4)
+                    {
+                        return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                    }
+
                     param = MiscParam.Int32;
                     index += 4;
                     break;
                 case 27:
+                    if (cbor.Length - index < 8)
+                    {
+                        return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                    }
+
                     param = MiscParam.Int64;
                     index += 8;
                     break;
@@ -558,6 +591,11 @@ public sealed class CborDocument : Document
                 case 30:
                     return new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
                 case 31:
+                    if ((CborMajorType)(c >> 5) is CborMajorType.PlusInteger or CborMajorType.MinusInteger or CborMajorType.Tag)
+                    {
+                        return new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
+                    }
+
                     param = MiscParam.Infinity;
                     break;
             }
@@ -585,25 +623,57 @@ public sealed class CborDocument : Document
                     switch (param & MiscParam.LengthMask)
                     {
                         default:
+                            if ((ushort)param > maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeByteStringLength, index);
+                            }
+
+                            if ((ushort)param > cbor.Length - index)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                            }
+
                             index += (ushort)param;
                             break;
                         case MiscParam.Infinity:
-                            while (cbor[index] != 0xff)
+                            while (index < cbor.Length && cbor[index] != 0xff)
                             {
+                                var chunk = cbor[index];
                                 var result = ParseCborToken(cbor, ref index);
-                                if (result.type != CborMajorType.Binary)
+                                if (result.type != CborMajorType.Binary || (chunk & 0x1f) == 31)
                                 {
                                     return new ParseException(this,
                                         ParseException.ErrorCode.InvalidIndefiniteLengthByteString, index);
                                 }
 
+                                if ((ulong)result.val > (uint)(cbor.Length - index))
+                                {
+                                    return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                                }
+
                                 index += (int)result.val;
+                            }
+
+                            if (index == cbor.Length)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
                             }
 
                             index++;
                             break;
                         case MiscParam.Int32:
-                            index += (int)BinaryPrimitives.ReadUInt32BigEndian(cbor.Slice(offset - 4));
+                            var length = BinaryPrimitives.ReadUInt32BigEndian(cbor.Slice(offset - 4));
+                            if (length > maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeByteStringLength, index);
+                            }
+
+                            if (length > (uint)(cbor.Length - index))
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                            }
+
+                            index += (int)length;
                             break;
                         case MiscParam.Int64:
                             return new ParseException(this, ParseException.ErrorCode.TooLargeByteStringLength,
@@ -650,25 +720,57 @@ public sealed class CborDocument : Document
                     switch (param & MiscParam.LengthMask)
                     {
                         default:
+                            if ((ushort)param > maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeTextStringLength, index);
+                            }
+
+                            if ((ushort)param > cbor.Length - index)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                            }
+
                             index += (ushort)param;
                             break;
                         case MiscParam.Infinity:
-                            while (cbor[index] != 0xff)
+                            while (index < cbor.Length && cbor[index] != 0xff)
                             {
+                                var chunk = cbor[index];
                                 var result = ParseCborToken(cbor, ref index);
-                                if (result.type != CborMajorType.String)
+                                if (result.type != CborMajorType.String || (chunk & 0x1f) == 31)
                                 {
                                     return new ParseException(this,
                                         ParseException.ErrorCode.InvalidIndefiniteLengthTextString, index);
                                 }
 
+                                if ((ulong)result.val > (uint)(cbor.Length - index))
+                                {
+                                    return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                                }
+
                                 index += (int)result.val;
+                            }
+
+                            if (index == cbor.Length)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
                             }
 
                             index++;
                             break;
                         case MiscParam.Int32:
-                            index += (int)BinaryPrimitives.ReadUInt32BigEndian(cbor.Slice(offset - 4));
+                            var length = BinaryPrimitives.ReadUInt32BigEndian(cbor.Slice(offset - 4));
+                            if (length > maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeTextStringLength, index);
+                            }
+
+                            if (length > (uint)(cbor.Length - index))
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                            }
+
+                            index += (int)length;
                             break;
                         case MiscParam.Int64:
                             return new ParseException(this, ParseException.ErrorCode.TooLargeTextStringLength,
@@ -677,6 +779,38 @@ public sealed class CborDocument : Document
 
                     break;
                 case CborMajorType.Array:
+                    int arrayLength;
+                    switch (param & MiscParam.LengthMask)
+                    {
+                        default:
+                            arrayLength = (ushort)param;
+                            if (arrayLength > maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeArrayLength, index);
+                            }
+
+                            break;
+                        case MiscParam.Infinity:
+                            arrayLength = -1;
+                            break;
+                        case MiscParam.Int32:
+                            var length = BinaryPrimitives.ReadUInt32BigEndian(cbor.Slice(offset - 4));
+                            if (length > maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeArrayLength, index);
+                            }
+
+                            if (length > (uint)(cbor.Length - index))
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.MismatchArrayLength, index);
+                            }
+
+                            arrayLength = (int)length;
+                            break;
+                        case MiscParam.Int64:
+                            return new ParseException(this, ParseException.ErrorCode.TooLargeArrayLength, index);
+                    }
+
                     if (tag == CborTag.DecimalFraction)
                     {
                         kind = DTokenVariant.FloatDecimal;
@@ -687,6 +821,16 @@ public sealed class CborDocument : Document
                         if (result2.type == CborMajorType.Tag)
                         {
                             var result3 = ParseCborToken(cbor, ref index);
+                            if ((ulong)result3.val > (uint)maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeByteStringLength, index);
+                            }
+
+                            if ((ulong)result3.val > (uint)(cbor.Length - index))
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                            }
+
                             index += (int)result3.val;
                         }
                     }
@@ -698,25 +842,8 @@ public sealed class CborDocument : Document
                             return new ParseException(this, ParseException.ErrorCode.MaxDepthExceeded, index);
                         }
 
-                        switch (param & MiscParam.LengthMask)
-                        {
-                            default:
-                                count = (ushort)param;
-                                tokenId = AllocToken(DToken.MakeArray(count));
-                                break;
-                            case MiscParam.Infinity:
-                                tokenId = AllocToken(DToken.MakeArray(0));
-                                count = -1;
-                                break;
-                            case MiscParam.Int32:
-                                count = (int)BinaryPrimitives.ReadUInt32BigEndian(cbor.Slice(offset - 4));
-                                tokenId = AllocToken(DToken.MakeArray(count));
-                                break;
-                            case MiscParam.Int64:
-                                return new ParseException(this, ParseException.ErrorCode.TooLargeArrayLength,
-                                    index);
-                        }
-
+                        count = arrayLength;
+                        tokenId = AllocToken(DToken.MakeArray(Math.Max(count, 0)));
                         parentId = tokenId;
                         latestId = 0;
                     }
@@ -733,6 +860,11 @@ public sealed class CborDocument : Document
                     {
                         default:
                             count = (ushort)param;
+                            if (count > maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeMapLength, index);
+                            }
+
                             tokenId = AllocToken(DToken.MakeMap(count));
                             count *= 2;
                             break;
@@ -741,7 +873,18 @@ public sealed class CborDocument : Document
                             count = -1;
                             break;
                         case MiscParam.Int32:
-                            count = (int)BinaryPrimitives.ReadUInt32BigEndian(cbor.Slice(offset - 4));
+                            var length = BinaryPrimitives.ReadUInt32BigEndian(cbor.Slice(offset - 4));
+                            if (length > maxLength)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.TooLargeMapLength, index);
+                            }
+
+                            if (length > (uint)(cbor.Length - index) / 2)
+                            {
+                                return new ParseException(this, ParseException.ErrorCode.MismatchMapLength, index);
+                            }
+
+                            count = (int)length;
                             tokenId = AllocToken(DToken.MakeMap(count));
                             count *= 2;
                             break;
@@ -753,6 +896,11 @@ public sealed class CborDocument : Document
                     latestId = 0;
                     break;
                 case CborMajorType.Tag:
+                    if (index == cbor.Length)
+                    {
+                        return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+                    }
+
                     tag = (CborTag)DecodeNumber(cbor, offset, param);
                     if (options.PreserveTag && !IsKnownTag(tag))
                     {
@@ -795,8 +943,14 @@ public sealed class CborDocument : Document
 
                             break;
                         default:
-                            if (count < 0 && param == MiscParam.Infinity)
+                            if (count < 0 && param == MiscParam.Infinity &&
+                                !(options.UseSequenceFormat && stack.Count == 1))
                             {
+                                if (GetToken(parentId).Type == DTokenType.Map && (count & 1) == 0)
+                                {
+                                    return new ParseException(this, ParseException.ErrorCode.MismatchMapLength, index);
+                                }
+
                                 tokenId = parentId;
                                 (parentId, latestId, count) = stack.Pop();
                                 kind = DTokenVariant.Undefined;
@@ -903,18 +1057,33 @@ public sealed class CborDocument : Document
             tag = CborTag.Invalid;
         }
 
+        if (!options.UseSequenceFormat || stack.Count != 1)
+        {
+            return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+        }
+
         bytesConsumed = index;
         return null;
     }
 
     private (long val, CborMajorType type) ParseCborToken(ReadOnlySpan<byte> src, ref int index)
     {
+        if ((uint)index >= (uint)src.Length)
+        {
+            throw new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+        }
+
         var spt = index;
         var c = src[spt++];
 
         var mt = (CborMajorType)(c >> 5);
         var st = c & 0x1f;
         long val = st;
+
+        if (st is >= 24 and <= 27 && src.Length - spt < 1 << (st - 24))
+        {
+            throw new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
+        }
 
         switch (val)
         {

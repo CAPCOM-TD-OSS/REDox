@@ -10,4 +10,6 @@ public readonly record struct CborDocumentOptions
     public bool PreserveTag { get; init; }
 
     public int MaxDepth { get; init; }
+
+    public int MaxLength { get; init; }
 }
