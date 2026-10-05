@@ -2106,7 +2106,7 @@ sealed class BuiltInTypeConverter : DataConverterFactory
                     return null;
                 }
 
-                return reader.ReadElement(tokenId);
+                return reader.ReadElement(tokenId).Clone();
             }
 
             if (token.IsContainer)
@@ -2147,7 +2147,7 @@ sealed class BuiltInTypeConverter : DataConverterFactory
                         }
                     }
 
-                    return reader.ReadElement(tokenId).AsArray();
+                    return reader.ReadElement(tokenId).Clone().AsArray();
                 }
 
                 if (existingValue != null && existingValue.GetType() != typeof(object))
@@ -2190,7 +2190,7 @@ sealed class BuiltInTypeConverter : DataConverterFactory
                     return dict;
                 }
 
-                return reader.ReadElement(tokenId).AsObject();
+                return reader.ReadElement(tokenId).Clone().AsObject();
             }
 
             switch (token.Kind)

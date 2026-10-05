@@ -105,8 +105,7 @@ sealed class SerializableTypeConverter : DataConverterFactory
                     continue;
                 }
 
-
-                info.AddValue(Utf8Helper.GetUtf16String(name), reader.ReadElement(kv.Value));
+                info.AddValue(Utf8Helper.GetUtf16String(name), reader.ReadElement(kv.Value).Clone());
             }
 
             var instance = _generator(info, reader.Settings.Context);

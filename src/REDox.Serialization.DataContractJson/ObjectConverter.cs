@@ -61,7 +61,7 @@ sealed class ObjectConverter : DataConverter<object>
                 return null;
             }
 
-            return reader.ReadElement(tokenId);
+            return reader.ReadElement(tokenId).Clone();
         }
 
         if (token.IsContainer)
