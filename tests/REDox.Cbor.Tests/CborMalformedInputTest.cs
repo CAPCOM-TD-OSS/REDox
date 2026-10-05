@@ -42,7 +42,7 @@ public sealed class CborMalformedInputTest
     [InlineData(new byte[] { 0x5B, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFB })]
     [InlineData(new byte[] { 0x1F })]
     [InlineData(new byte[] { 0x3F })]
-    public void ParseOutOfRangeLengthShouldThrowWithoutHanging(byte[] input)
+    public async Task ParseOutOfRangeLengthShouldThrowWithoutHanging(byte[] input)
     {
         // Run on a dedicated thread so a regression fails the test instead of hanging the runner.
         var parse = Task.Factory.StartNew(() =>
@@ -51,10 +51,15 @@ public sealed class CborMalformedInputTest
             {
                 using var doc = CborDocument.Parse(input);
             });
-        }, TaskCreationOptions.LongRunning);
+        }, TestContext.Current.CancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
-        Assert.True(parse.Wait(TimeSpan.FromSeconds(5)),
-            $"CborDocument.Parse did not complete within five seconds for: {Convert.ToHexString(input)}");
-        parse.GetAwaiter().GetResult();
+        try
+        {
+            await parse.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            Assert.Fail($"CborDocument.Parse did not complete within five seconds for: {Convert.ToHexString(input)}");
+        }
     }
 }
