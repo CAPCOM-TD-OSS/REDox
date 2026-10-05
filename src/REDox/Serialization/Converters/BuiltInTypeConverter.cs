@@ -13,6 +13,33 @@ namespace REDox.Serialization.Converters;
 
 sealed class BuiltInTypeConverter : DataConverterFactory
 {
+    private const NumberHandling FloatingPointStringHandlingMask =
+        NumberHandling.AllowReadingFromString | NumberHandling.AllowNamedFloatingPointLiterals;
+
+    private static bool TryParseNamedFloatingPointLiteral(ReadOnlySpan<byte> source, out double value)
+    {
+        if (source.SequenceEqual("NaN"u8))
+        {
+            value = double.NaN;
+            return true;
+        }
+
+        if (source.SequenceEqual("Infinity"u8))
+        {
+            value = double.PositiveInfinity;
+            return true;
+        }
+
+        if (source.SequenceEqual("-Infinity"u8))
+        {
+            value = double.NegativeInfinity;
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
     internal static MethodInfo? GetWritePropertyMethod(DataConverter? converter)
     {
         if (converter is StringConverter)
@@ -323,6 +350,20 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override long Read(in DataReader reader, uint tokenId, long existingValue)
         {
+            if ((NumberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(source, out long value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid Int64 format.");
+            }
+
             return reader.ReadInt64(tokenId);
         }
 
@@ -393,6 +434,27 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override Half Read(in DataReader reader, uint tokenId, Half existingValue)
         {
+            if ((_numberHandling & FloatingPointStringHandlingMask) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if ((_numberHandling & NumberHandling.AllowNamedFloatingPointLiterals) != 0 &&
+                    TryParseNamedFloatingPointLiteral(source, out var named))
+                {
+                    return (Half)named;
+                }
+
+                if ((_numberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                    Half.TryParse(source, NumberStyles.Float | NumberStyles.AllowThousands,
+                        CultureInfo.InvariantCulture, out var value))
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid Half format.");
+            }
+
             return reader.ReadHalf(tokenId);
         }
 
@@ -457,6 +519,13 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override Int128 Read(in DataReader reader, uint tokenId, Int128 existingValue)
         {
+            if (reader.GetToken(tokenId).IsStringEncoded &&
+                (_numberHandling & NumberHandling.AllowReadingFromString) == 0 &&
+                !reader.Settings.AllowRelaxedScalarConversion)
+            {
+                throw new FormatException("Invalid Int128 format.");
+            }
+
             if (Int128.TryParse(reader.ReadBigNumber(tokenId), CultureInfo.InvariantCulture, out var result))
             {
                 return result;
@@ -510,6 +579,13 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override UInt128 Read(in DataReader reader, uint tokenId, UInt128 existingValue)
         {
+            if (reader.GetToken(tokenId).IsStringEncoded &&
+                (_numberHandling & NumberHandling.AllowReadingFromString) == 0 &&
+                !reader.Settings.AllowRelaxedScalarConversion)
+            {
+                throw new FormatException("Invalid UInt128 format.");
+            }
+
             if (UInt128.TryParse(reader.ReadBigNumber(tokenId), CultureInfo.InvariantCulture, out var result))
             {
                 return result;
@@ -609,6 +685,18 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override int Read(in DataReader reader, uint tokenId, int existingValue)
         {
+            if ((NumberHandling & NumberHandling.AllowReadingFromString) != 0 && reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var utf8Bytes = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(utf8Bytes, out int value, out var bytesConsumed) && utf8Bytes.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid Int32 format.");
+            }
+
             return reader.ReadInt32(tokenId);
         }
 
@@ -672,6 +760,20 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override short Read(in DataReader reader, uint tokenId, short existingValue)
         {
+            if ((_numberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(source, out short value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid Int16 format.");
+            }
+
             return reader.ReadInt16(tokenId);
         }
 
@@ -734,6 +836,20 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override sbyte Read(in DataReader reader, uint tokenId, sbyte existingValue)
         {
+            if ((_numberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(source, out sbyte value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid SByte format.");
+            }
+
             return reader.ReadSByte(tokenId);
         }
 
@@ -797,16 +913,15 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override ulong Read(in DataReader reader, uint tokenId, ulong existingValue)
         {
-            var token = reader.GetToken(tokenId);
-
-            if (token.Type == DTokenType.Text)
+            if ((NumberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
             {
-                if ((NumberHandling & NumberHandling.AllowReadingFromString) != 0)
+                var source = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(source, out ulong value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
                 {
-                    if (Utf8Parser.TryParse(reader.ReadUtf8String(tokenId), out ulong val, out var bytesConsumed))
-                    {
-                        return val;
-                    }
+                    return value;
                 }
 
                 throw new FormatException("Invalid UInt64 format.");
@@ -874,6 +989,20 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override uint Read(in DataReader reader, uint tokenId, uint existingValue)
         {
+            if ((NumberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(source, out uint value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid UInt32 format.");
+            }
+
             return reader.ReadUInt32(tokenId);
         }
 
@@ -936,6 +1065,20 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override ushort Read(in DataReader reader, uint tokenId, ushort existingValue)
         {
+            if ((_numberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(source, out ushort value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid UInt16 format.");
+            }
+
             return reader.ReadUInt16(tokenId);
         }
 
@@ -998,6 +1141,20 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override byte Read(in DataReader reader, uint tokenId, byte existingValue)
         {
+            if ((_numberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(source, out byte value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid Byte format.");
+            }
+
             return reader.ReadByte(tokenId);
         }
 
@@ -1060,6 +1217,27 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override float Read(in DataReader reader, uint tokenId, float existingValue)
         {
+            if ((NumberHandling & FloatingPointStringHandlingMask) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if ((NumberHandling & NumberHandling.AllowNamedFloatingPointLiterals) != 0 &&
+                    TryParseNamedFloatingPointLiteral(source, out var named))
+                {
+                    return (float)named;
+                }
+
+                if ((NumberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                    Utf8Parser.TryParse(source, out float value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid Single format.");
+            }
+
             return reader.ReadSingle(tokenId);
         }
 
@@ -1123,6 +1301,27 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override double Read(in DataReader reader, uint tokenId, double existingValue)
         {
+            if ((NumberHandling & FloatingPointStringHandlingMask) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if ((NumberHandling & NumberHandling.AllowNamedFloatingPointLiterals) != 0 &&
+                    TryParseNamedFloatingPointLiteral(source, out var named))
+                {
+                    return named;
+                }
+
+                if ((NumberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                    Utf8Parser.TryParse(source, out double value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid Double format.");
+            }
+
             return reader.ReadDouble(tokenId);
         }
 
@@ -1186,6 +1385,20 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         public override decimal Read(in DataReader reader, uint tokenId, decimal existingValue)
         {
+            if ((_numberHandling & NumberHandling.AllowReadingFromString) != 0 &&
+                reader.GetToken(tokenId).IsStringEncoded)
+            {
+                var source = reader.ReadUtf8String(tokenId);
+
+                if (Utf8Parser.TryParse(source, out decimal value, out var bytesConsumed) &&
+                    source.Length == bytesConsumed)
+                {
+                    return value;
+                }
+
+                throw new FormatException("Invalid Decimal format.");
+            }
+
             return reader.ReadDecimal(tokenId);
         }
 

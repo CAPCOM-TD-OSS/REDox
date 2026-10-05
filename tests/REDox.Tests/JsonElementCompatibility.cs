@@ -76,6 +76,27 @@ public sealed class JsonElementCompatibility
         arr[3] = true;
     }
 
+    private static void AssertRelaxedScalarConversion<T>(
+        string json,
+        Type strictExceptionType,
+        Func<DValue, T> convert,
+        T expected)
+    {
+        var strict = DValue.ParseJson(json, new DoxSerializerSettings
+        {
+            AllowRelaxedScalarConversion = false
+        });
+        var relaxed = DValue.ParseJson(json, new DoxSerializerSettings
+        {
+            AllowRelaxedScalarConversion = true
+        });
+
+        var strictException = Record.Exception(() => convert(strict));
+        Assert.NotNull(strictException);
+        Assert.Equal(strictExceptionType, strictException.GetType());
+        Assert.Equal(expected, convert(relaxed));
+    }
+
     [Theory]
     [InlineData(@"""\x""", Mode.Failed)]
     [InlineData(@"""\u12G4""", Mode.Failed)]
@@ -222,6 +243,8 @@ public sealed class JsonElementCompatibility
             Assert.Throws<InvalidOperationException>(() => dox.GetString());
 
             Assert.Equal((string?)ntj, (string?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (string?)value,
+                (string?)ntj);
         }
 
         if (mode == Mode.Failed)
@@ -412,6 +435,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((bool)ntj, (bool)dox.AsValue());
             Assert.Equal((bool?)ntj, (bool?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (bool)value, (bool)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -498,6 +522,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((byte)ntj, (byte)dox.AsValue());
             Assert.Equal((byte?)ntj, (byte?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (byte)value, (byte)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -510,6 +535,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((byte)ntj, (byte)dox.AsValue());
             Assert.Equal((byte?)ntj, (byte?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (byte)value, (byte)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -620,6 +646,8 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((sbyte)ntj, (sbyte)dox.AsValue());
             Assert.Equal((sbyte?)ntj, (sbyte?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (sbyte)value,
+                (sbyte)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -632,6 +660,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((sbyte)ntj, (sbyte)dox.AsValue());
             Assert.Equal((sbyte?)ntj, (sbyte?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (sbyte)value, (sbyte)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -741,6 +770,8 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((ushort)ntj, (ushort)dox.AsValue());
             Assert.Equal((ushort?)ntj, (ushort?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (ushort)value,
+                (ushort)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -753,6 +784,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((ushort)ntj, (ushort)dox.AsValue());
             Assert.Equal((ushort?)ntj, (ushort?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (ushort)value, (ushort)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -867,6 +899,8 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((short)ntj, (short)dox.AsValue());
             Assert.Equal((short?)ntj, (short?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (short)value,
+                (short)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -879,6 +913,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((short)ntj, (short)dox.AsValue());
             Assert.Equal((short?)ntj, (short?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (short)value, (short)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -987,6 +1022,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((uint)ntj, (uint)dox.AsValue());
             Assert.Equal((uint?)ntj, (uint?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (uint)value, (uint)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -999,6 +1035,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((uint)ntj, (uint)dox.AsValue());
             Assert.Equal((uint?)ntj, (uint?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (uint)value, (uint)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -1112,6 +1149,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((int)ntj, (int)dox.AsValue());
             Assert.Equal((int?)ntj, (int?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (int)value, (int)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -1233,6 +1271,8 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((ulong)ntj, (ulong)dox.AsValue());
             Assert.Equal((ulong?)ntj, (ulong?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (ulong)value,
+                (ulong)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -1245,6 +1285,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((ulong)ntj, (ulong)dox.AsValue());
             Assert.Equal((ulong?)ntj, (ulong?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (ulong)value, (ulong)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -1360,6 +1401,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((long)ntj, (long)dox.AsValue());
             Assert.Equal((long?)ntj, (long?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (long)value, (long)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -1372,6 +1414,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((long)ntj, (long)dox.AsValue());
             Assert.Equal((long?)ntj, (long?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (long)value, (long)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -1512,6 +1555,8 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((float)ntj, (float)dox.AsValue());
             Assert.Equal((float?)ntj, (float?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (float)value,
+                (float)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -1522,6 +1567,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((float)ntj, (float)dox.AsValue());
             Assert.Equal((float?)ntj, (float?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (float)value, (float)ntj);
             Assert.Equal(stj.TryGetSingle(out var stjValue), dox.TryGetSingle(out var doxValue));
             Assert.Equal(stjValue, doxValue);
         }
@@ -1652,6 +1698,8 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((double)ntj, (double)dox.AsValue());
             Assert.Equal((double?)ntj, (double?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (double)value,
+                (double)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -1664,6 +1712,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((double)ntj, (double)dox.AsValue());
             Assert.Equal((double?)ntj, (double?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (double)value, (double)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -1807,6 +1856,8 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((decimal)ntj, (decimal)dox.AsValue());
             Assert.Equal((decimal?)ntj, (decimal?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (decimal)value,
+                (decimal)ntj);
         }
 
         if (mode == Mode.RelaxedFormat)
@@ -1819,6 +1870,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((decimal)ntj, (decimal)dox.AsValue());
             Assert.Equal((decimal?)ntj, (decimal?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (decimal)value, (decimal)ntj);
         }
 
         if (mode == Mode.Nullable)
@@ -2081,6 +2133,8 @@ public sealed class JsonElementCompatibility
             Assert.Equal(ntjDt.Ticks, doxDt.Ticks);
             Assert.Equal(ntjDt.Kind, doxDt.Kind);
             Assert.Equal(ntjDto, doxDto);
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (DateTime)value, ntjDt);
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (DateTimeOffset)value, ntjDto);
 
             dox.AsValue().ReplaceWith(ntjDt);
 
@@ -2240,6 +2294,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((Guid)ntj, (Guid)dox.AsValue());
             Assert.Equal((Guid?)ntj, (Guid?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(FormatException), value => (Guid)value, ntjGuid);
         }
 
         if (mode == Mode.Nullable)
@@ -2384,6 +2439,7 @@ public sealed class JsonElementCompatibility
 
             Assert.Equal((char)ntj, (char)dox.AsValue());
             Assert.Equal((char?)ntj, (char?)dox.AsValue());
+            AssertRelaxedScalarConversion(json, typeof(InvalidOperationException), value => (char)value, (char)ntj);
         }
 
         if (mode == Mode.Failed)

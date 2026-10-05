@@ -220,6 +220,21 @@ public class CompatibilityGapTest
         Assert.Equal(JsonSerializer.Serialize(value), SerializeByRedox(value));
     }
 
+    private sealed class StringRequest
+    {
+        public required string Username { get; set; }
+    }
+
+    [Fact]
+    public void StringPropertyRejectsNumericToken()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        const string json = "{\"username\":123}";
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StringRequest>(json, options));
+        Assert.ThrowsAny<Exception>(() => DeserializeByRedox<StringRequest>(json, options));
+    }
+
     #endregion
 
     #region Polymorphism

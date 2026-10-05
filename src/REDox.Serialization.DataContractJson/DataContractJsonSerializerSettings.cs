@@ -66,6 +66,7 @@ public class DataContractJsonSerializerSettings : SerializerSettings
         }
 
         Culture = null;
+        AllowRelaxedScalarConversion = true;
         KnownTypes = settings.KnownTypes != null ? settings.KnownTypes : Array.Empty<Type>();
         EmptyArrayHandling = EmptyArrayHandling.Unique;
         UnknownObjectTypeHandling = UnknownObjectTypeHandling.Default;

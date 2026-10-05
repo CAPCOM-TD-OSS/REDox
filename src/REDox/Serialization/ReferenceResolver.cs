@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -151,6 +152,23 @@ sealed class DefaultReferenceResolver : ReferenceResolver<int>
 
     protected override int ReadId(in DataReader reader, uint tokenId)
     {
-        return reader.ReadInt32(tokenId);
+        var token = reader.GetToken(tokenId);
+
+        if (token.IsNumeric)
+        {
+            return reader.ReadInt32(tokenId);
+        }
+
+        if (token.IsStringEncoded)
+        {
+            var utf8Bytes = reader.ReadUtf8String(tokenId);
+
+            if (Utf8Parser.TryParse(utf8Bytes, out int id, out var bytesConsumed) && utf8Bytes.Length == bytesConsumed)
+            {
+                return id;
+            }
+        }
+
+        throw new FormatException();
     }
 }

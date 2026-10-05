@@ -859,6 +859,40 @@ public sealed class JsonNodeCompatibility
     }
 
     [Fact]
+    public void DValueScalarCoercionSucceedsWhenAllowed()
+    {
+        var settings = new DoxSerializerSettings
+        {
+            AllowRelaxedScalarConversion = true
+        };
+        var obj = new DObject(settings)
+        {
+            ["number"] = DValue.Create(123),
+            ["boolean"] = DValue.Create(true)
+        };
+
+        Assert.Equal("123", (string?)obj["number"]);
+        Assert.Equal(1, obj["boolean"].To<int>());
+    }
+
+    [Fact]
+    public void DValueScalarCoercionThrowsWhenDisallowed()
+    {
+        var settings = new DoxSerializerSettings
+        {
+            AllowRelaxedScalarConversion = false
+        };
+        var obj = new DObject(settings)
+        {
+            ["number"] = DValue.Create(123),
+            ["boolean"] = DValue.Create(true)
+        };
+
+        Assert.ThrowsAny<Exception>(() => (string?)obj["number"]);
+        Assert.ThrowsAny<Exception>(() => obj["boolean"].To<int>());
+    }
+
+    [Fact]
     public void ConditionalSerialize()
     {
         var member = new Staff();

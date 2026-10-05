@@ -1528,50 +1528,49 @@ public abstract partial class Document
                     ? GetExtendUtf8Bytes(token)
                     : DecodeUtf8Bytes(token);
             case DTokenKind.Integer:
-                {
-                    Span<byte> temp = stackalloc byte[32];
-                    var lvalue = token.IsExtended ? GetExtendInteger(token) : DecodeInteger(token);
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(string));
+            {
+                Span<byte> temp = stackalloc byte[32];
 
-                    if (token.Variant == DTokenVariant.IntegerUnsigned)
+                if (token.IntegerKind == IntegerKind.Unsigned)
+                {
+                    if (Utf8Formatter.TryFormat(GetUnsignedIntegerValue(tokenId), temp, out var bytes))
                     {
-                        if (Utf8Formatter.TryFormat((ulong)lvalue, temp, out var bytes))
-                        {
-                            return temp.Slice(0, bytes).ToArray();
-                        }
-                    }
-                    else
-                    {
-                        if (Utf8Formatter.TryFormat(lvalue, temp, out var bytes))
-                        {
-                            return temp.Slice(0, bytes).ToArray();
-                        }
+                        return temp.Slice(0, bytes).ToArray();
                     }
                 }
+                else
+                {
+                    if (Utf8Formatter.TryFormat(GetSignedIntegerValue(tokenId), temp, out var bytes))
+                    {
+                        return temp.Slice(0, bytes).ToArray();
+                    }
+                }
+            }
                 break;
             case DTokenKind.Float:
-                {
-                    Span<byte> temp = stackalloc byte[64];
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(string));
+            {
+                Span<byte> temp = stackalloc byte[64];
 
-                    if (token.Variant == DTokenVariant.FloatDecimal)
+                if (token.FloatKind == FloatKind.Decimal)
+                {
+                    if (Utf8Formatter.TryFormat(GetDecimalValue(tokenId), temp, out var bytes))
                     {
-                        if (Utf8Formatter.TryFormat(
-                                token.IsExtended ? GetExtendDecimal(token) : DecodeDecimal(token),
-                                temp, out var bytes))
-                        {
-                            return temp.Slice(0, bytes).ToArray();
-                        }
-                    }
-                    else
-                    {
-                        if (Utf8Formatter.TryFormat(token.IsExtended ? GetExtendDouble(token) : DecodeFloat(token),
-                                temp, out var bytes))
-                        {
-                            return temp.Slice(0, bytes).ToArray();
-                        }
+                        return temp.Slice(0, bytes).ToArray();
                     }
                 }
+                else
+                {
+                    if (Utf8Formatter.TryFormat(GetFloatingValue(tokenId), temp, out var bytes))
+                    {
+                        return temp.Slice(0, bytes).ToArray();
+                    }
+                }
+            }
                 break;
             case DTokenKind.Boolean:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(string));
                 if (GetBooleanValue(tokenId))
                 {
                     return Utf8Helper.TrueLiteral;
@@ -1579,32 +1578,35 @@ public abstract partial class Document
 
                 return Utf8Helper.FalseLiteral;
             case DTokenKind.Timestamp:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(string));
+            {
+                Span<byte> temp = stackalloc byte[64];
+                if (token.TimestampKind == TimestampKind.OffsetDateTime)
                 {
-                    Span<byte> temp = stackalloc byte[64];
-                    if (token.Variant == DTokenVariant.TimestampOffsetDateTime)
+                    if (Utf8Formatter.TryFormat(
+                            token.IsExtended ? GetExtendDateTimeOffset(token) : DecodeDateTimeOffset(token),
+                            temp,
+                            out var bytes))
                     {
-                        if (Utf8Formatter.TryFormat(
-                                token.IsExtended ? GetExtendDateTimeOffset(token) : DecodeDateTimeOffset(token),
-                                temp,
-                                out var bytes))
-                        {
-                            return temp.Slice(0, bytes).ToArray();
-                        }
-                    }
-                    else
-                    {
-                        if (Utf8Formatter.TryFormat(
-                                token.IsExtended ? GetExtendDateTime(token) : DecodeDateTime(token), temp,
-                                out var bytes))
-                        {
-                            return temp.Slice(0, bytes).ToArray();
-                        }
+                        return temp.Slice(0, bytes).ToArray();
                     }
                 }
+                else
+                {
+                    if (Utf8Formatter.TryFormat(
+                            token.IsExtended ? GetExtendDateTime(token) : DecodeDateTime(token), temp,
+                            out var bytes))
+                    {
+                        return temp.Slice(0, bytes).ToArray();
+                    }
+                }
+            }
                 break;
             case DTokenKind.BigNumber:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(string));
                 return GetBigNumberValue(tokenId);
             case DTokenKind.ByteString:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(string));
                 if (token.Variant == DTokenVariant.ByteStringRaw)
                 {
                     return GetByteStringValue(tokenId);
@@ -1619,6 +1621,23 @@ public abstract partial class Document
 
         throw new InvalidOperationException(
             $"Cannot convert value {new DElement(this, tokenId)} to {typeof(string)}");
+    }
+
+    private void ThrowIfRelaxedScalarConversionDisabled(uint tokenId, Type targetType, bool formatException = false)
+    {
+        if (Settings.AllowRelaxedScalarConversion)
+        {
+            return;
+        }
+
+        var message = $"Cannot convert token {_tokens[tokenId].Kind} to {targetType}";
+
+        if (formatException)
+        {
+            throw new FormatException(message);
+        }
+
+        throw new InvalidOperationException(message);
     }
 
     internal ReadOnlySpan<byte> GetTriviaValue(uint tokenId)
@@ -1658,14 +1677,15 @@ public abstract partial class Document
                 }
                 break;
             case DTokenKind.Integer:
-                {
-                    var c = GetUnsignedIntegerValue(tokenId);
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(char));
+            {
+                var c = GetUnsignedIntegerValue(tokenId);
 
-                    if (c <= char.MaxValue)
-                    {
-                        return (char)c;
-                    }
+                if (c <= char.MaxValue)
+                {
+                    return (char)c;
                 }
+            }
                 break;
         }
 
@@ -1682,6 +1702,7 @@ public abstract partial class Document
                 return token.Variant == DTokenVariant.BooleanTrue;
             case DTokenKind.String:
             case DTokenKind.Symbol:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(bool));
                 if (token.IsExtended)
                 {
                     if (bool.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var bvalue))
@@ -1702,7 +1723,8 @@ public abstract partial class Document
 
                 break;
             case DTokenKind.Integer:
-                if (token.Variant == DTokenVariant.IntegerUnsigned)
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(bool));
+                if (token.IntegerKind == IntegerKind.Unsigned)
                 {
                     if (TryGetUnsignedIntegerExact(tokenId, out var uvalue))
                     {
@@ -1719,6 +1741,7 @@ public abstract partial class Document
 
                 break;
             case DTokenKind.Float:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(bool));
                 if (TryGetFloatingExact(tokenId, out var fvalue))
                 {
                     return fvalue != 0;
@@ -1811,6 +1834,7 @@ public abstract partial class Document
                 break;
             case DTokenKind.String:
             case DTokenKind.Symbol:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(ulong));
                 if (token.IsExtended)
                 {
                     if (ulong.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var value))
@@ -1830,6 +1854,7 @@ public abstract partial class Document
 
                 break;
             case DTokenKind.Float:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(ulong), true);
                 if (token.Variant == DTokenVariant.FloatDecimal)
                 {
                     var dvalue = decimal.Round(GetDecimalValue(tokenId));
@@ -1856,6 +1881,7 @@ public abstract partial class Document
 
                 break;
             case DTokenKind.Boolean:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(ulong));
                 if (TryGetBooleanExact(tokenId, out var bvalue))
                 {
                     return bvalue ? 1UL : 0UL;
@@ -1925,6 +1951,7 @@ public abstract partial class Document
                 break;
             case DTokenKind.String:
             case DTokenKind.Symbol:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(long));
                 if (token.IsExtended)
                 {
                     if (long.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var value))
@@ -1944,6 +1971,7 @@ public abstract partial class Document
 
                 break;
             case DTokenKind.Float:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(long), true);
                 if (token.Variant == DTokenVariant.FloatDecimal)
                 {
                     var dvalue = decimal.Round(GetDecimalValue(tokenId));
@@ -1970,6 +1998,7 @@ public abstract partial class Document
 
                 break;
             case DTokenKind.Boolean:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(long));
                 if (TryGetBooleanExact(tokenId, out var bvalue))
                 {
                     return bvalue ? 1 : 0;
@@ -2032,6 +2061,16 @@ public abstract partial class Document
             case DTokenKind.String:
             case DTokenKind.Symbol:
                 {
+                    if (!Settings.AllowRelaxedScalarConversion)
+                    {
+                        if (TryGetDateTimeExact(tokenId, out var exactValue))
+                        {
+                            return exactValue;
+                        }
+
+                        ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(DateTime), true);
+                    }
+
                     var source = GetUtf8BytesValue(tokenId);
 
                     if (Utf8Helper.TryParseTimestamp(source, out var dateTime, out var offset,
@@ -2118,6 +2157,16 @@ public abstract partial class Document
             case DTokenKind.String:
             case DTokenKind.Symbol:
                 {
+                    if (!Settings.AllowRelaxedScalarConversion)
+                    {
+                        if (TryGetGuidExact(tokenId, out var exactValue))
+                        {
+                            return exactValue;
+                        }
+
+                        ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(Guid), true);
+                    }
+
                     var source = token.IsExtended ? GetExtendUtf8Bytes(token) : DecodeUtf8Bytes(token);
 
                     if (Utf8Parser.TryParse(source, out Guid value, out var bytesConsumed) &&
@@ -2281,6 +2330,17 @@ public abstract partial class Document
             case DTokenKind.String:
             case DTokenKind.Symbol:
                 {
+                    if (!Settings.AllowRelaxedScalarConversion)
+                    {
+                        if (TryGetDateTimeOffsetExact(tokenId, out var exactValue))
+                        {
+                            return exactValue;
+                        }
+
+                        ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(DateTimeOffset),
+                            true);
+                    }
+
                     var source = GetUtf8BytesValue(tokenId);
 
                     if (Utf8Helper.TryParseTimestamp(source, out var result, out var offset, Settings.DateFormatString,
@@ -2424,6 +2484,8 @@ public abstract partial class Document
             case DTokenKind.Symbol:
             case DTokenKind.ByteString:
                 {
+                    ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(decimal));
+
                     if (token.IsExtended)
                     {
                         if (decimal.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var dvalue))
@@ -2445,7 +2507,7 @@ public abstract partial class Document
                 break;
             case DTokenKind.BigNumber:
                 {
-                    var source = GetUtf8BytesValue(tokenId);
+                    var source = GetBigNumberValue(tokenId);
 
                     if (Utf8Parser.TryParse(source, out decimal dvalue, out var bytesConsumed) &&
                         source.Length == bytesConsumed)
@@ -2455,6 +2517,7 @@ public abstract partial class Document
                 }
                 break;
             case DTokenKind.Boolean:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(decimal));
                 if (TryGetBooleanExact(tokenId, out var bvalue))
                 {
                     return bvalue ? 1m : 0m;
@@ -2503,6 +2566,7 @@ public abstract partial class Document
                 break;
             case DTokenKind.String:
             case DTokenKind.Symbol:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(double));
                 if (token.IsExtended)
                 {
                     if (double.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var result))
@@ -2523,6 +2587,7 @@ public abstract partial class Document
 
                 break;
             case DTokenKind.Boolean:
+                ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(double));
                 if (TryGetBooleanExact(tokenId, out var bvalue))
                 {
                     return bvalue ? 1.0 : 0.0;
@@ -2690,7 +2755,24 @@ public abstract partial class Document
         switch (token.Kind)
         {
             case DTokenKind.Integer:
+                {
+                    Span<byte> buffer = stackalloc byte[32];
+                    var written = token.IntegerKind == IntegerKind.Unsigned
+                        ? Utf8Helper.EncodeNumber(buffer, GetUnsignedIntegerValue(tokenId))
+                        : Utf8Helper.EncodeNumber(buffer, GetSignedIntegerValue(tokenId));
+                    return buffer.Slice(0, written).ToArray();
+                }
             case DTokenKind.Float:
+            case DTokenKind.InlineFloat:
+                {
+                    Span<byte> buffer = stackalloc byte[64];
+                    var written = token.Kind == DTokenKind.Float && token.FloatKind == FloatKind.Decimal
+                        ? Utf8Helper.EncodeNumber(buffer, GetDecimalValue(tokenId),
+                            FloatFormatHandling.SpecialFloatAsSymbol)
+                        : Utf8Helper.EncodeNumber(buffer, GetFloatingValue(tokenId),
+                            FloatFormatHandling.SpecialFloatAsSymbol);
+                    return buffer.Slice(0, written).ToArray();
+                }
             case DTokenKind.String:
             case DTokenKind.Symbol:
                 return GetUtf8BytesValue(tokenId);
@@ -2711,9 +2793,8 @@ public abstract partial class Document
         {
             case DTokenKind.Integer:
             case DTokenKind.Float:
-            case DTokenKind.String:
-            case DTokenKind.Symbol:
-                value = GetUtf8BytesValue(tokenId);
+            case DTokenKind.InlineFloat:
+                value = GetBigNumberValue(tokenId);
                 return true;
             case DTokenKind.BigNumber:
                 value = token.IsExtended ? GetExtendBytes(token) : DecodeBigNumber(token);

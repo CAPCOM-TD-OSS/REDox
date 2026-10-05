@@ -35,6 +35,7 @@ public class DoxSerializerSettings : SerializerSettings
     public DoxSerializerSettings()
     {
         NumberHandling = NumberHandling.AllowReadingFromString;
+        AllowRelaxedScalarConversion = true;
     }
 
     public bool IgnoreSerializableInterface { get; init; }

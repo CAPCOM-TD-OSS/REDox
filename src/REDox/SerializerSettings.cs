@@ -88,6 +88,8 @@ public abstract class SerializerSettings
 
     public StreamingContext Context { get; init; }
 
+    public bool AllowRelaxedScalarConversion { get; init; }
+
     internal object LockObj => _contractDict;
 
     protected internal virtual ReferenceResolver CreateReferenceResolver()
