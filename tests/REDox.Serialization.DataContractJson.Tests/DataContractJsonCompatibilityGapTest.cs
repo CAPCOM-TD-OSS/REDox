@@ -231,33 +231,74 @@ public sealed class DataContractJsonCompatibilityGapTest
     [Fact]
     public void DateTimeFormatProviderIsApplied()
     {
-        var settings = new System.Runtime.Serialization.Json.DataContractJsonSerializerSettings
+        var previousCulture = CultureInfo.CurrentCulture;
+        try
         {
-            DateTimeFormat = new DateTimeFormat("D", new CultureInfo("ja-JP"))
-        };
+            // A matching ambient culture can conceal an ignored format provider.
+            CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+            var settings = new System.Runtime.Serialization.Json.DataContractJsonSerializerSettings
+            {
+                DateTimeFormat = new DateTimeFormat("D", CultureInfo.GetCultureInfo("ja-JP"))
+            };
 
-        var value = new DateData();
+            var value = new DateData();
+            var expected = SerializeByDataContract(typeof(DateData), value, settings);
 
-        Assert.Equal(SerializeByDataContract(typeof(DateData), value, settings),
-            SerializeByRedox(typeof(DateData), value, settings));
+            Assert.Contains("2024年1月2日", expected);
+            Assert.Equal(expected, SerializeByRedox(typeof(DateData), value, settings));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     [Fact]
-    public void DateTimeStylesIsApplied()
+    public void DateTimeFormatProviderIsAppliedWhenDeserializing()
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+            var settings = new System.Runtime.Serialization.Json.DataContractJsonSerializerSettings
+            {
+                DateTimeFormat = new DateTimeFormat("dd MMMM yyyy HH:mm:ss", CultureInfo.GetCultureInfo("fr-FR"))
+            };
+            const string json = "\"02 janvier 2024 03:04:05\"";
+            var expected = (DateTime)DeserializeByDataContract(typeof(DateTime), json, settings)!;
+
+            Assert.Equal(new DateTime(2024, 1, 2, 3, 4, 5), expected);
+            var actual = (DateTime)DeserializeByRedox(typeof(DateTime), json, settings)!;
+            Assert.Equal(expected, actual);
+            Assert.Equal(expected.Kind, actual.Kind);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    [Theory]
+    [InlineData("2024-01-02T03:04:05")]
+    [InlineData("2024-01-02T03:04:05Z")]
+    public void DateTimeStylesIsApplied(string text)
     {
         var settings = new System.Runtime.Serialization.Json.DataContractJsonSerializerSettings
         {
-            DateTimeFormat = new DateTimeFormat("yyyy-MM-ddTHH:mm:ssK")
+            DateTimeFormat = new DateTimeFormat("yyyy-MM-ddTHH:mm:ssK", CultureInfo.InvariantCulture)
             {
                 DateTimeStyles = DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal
             }
         };
 
-        var json = SerializeByDataContract(typeof(DateData), new DateData(), settings);
+        // A Z suffix already implies UTC and can conceal ignored parsing styles.
+        var json = $"{{\"Value\":\"{text}\"}}";
 
         var expected = DeserializeByDataContract(typeof(DateData), json, settings) as DateData;
         var actual = DeserializeByRedox(typeof(DateData), json, settings) as DateData;
 
+        Assert.NotNull(expected);
+        Assert.Equal(DateTimeKind.Utc, expected.Value.Kind);
         Assert.NotNull(actual);
         Assert.Equal(expected!.Value, actual!.Value);
         Assert.Equal(expected.Value.Kind, actual.Value.Kind);

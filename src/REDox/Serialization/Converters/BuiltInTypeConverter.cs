@@ -1599,11 +1599,18 @@ sealed class BuiltInTypeConverter : DataConverterFactory
         private static readonly byte[] OffsetMinutesId = Encoding.UTF8.GetBytes("OffsetMinutes");
         private readonly DataContract _contract;
 
-        private readonly DateTimeConverter _dateTimeConverter = new();
+        private readonly DataConverter<DateTime> _dateTimeConverter;
         private readonly DataConverter<int> _int32Converter;
 
         public DateTimeOffsetConverter(SerializerSettings settings, bool offsetMinutes)
+            : this(settings, offsetMinutes, new DateTimeConverter())
         {
+        }
+
+        public DateTimeOffsetConverter(SerializerSettings settings, bool offsetMinutes,
+            DataConverter<DateTime> dateTimeConverter)
+        {
+            _dateTimeConverter = dateTimeConverter;
             _contract = settings.GetContract(typeof(DateTimeOffset));
             _int32Converter = new Int32Converter(settings.NumberHandling);
             OffsetMinutes = offsetMinutes;

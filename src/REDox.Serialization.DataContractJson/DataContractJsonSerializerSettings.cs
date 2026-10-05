@@ -45,6 +45,7 @@ public class DataContractJsonSerializerSettings : SerializerSettings
     private static readonly XsdDataContractExporter s_exporter = new();
 
     private static readonly TextEncoderPolicy DataContractEncoder = new(TextEscapeMask.Slash | TextEscapeMask.NonBmp);
+    private readonly DateTimeFormatConverter? _dateTimeFormatConverter;
     private readonly ExtensibleDataObjectConverter? _extensibleDataObjectConverter;
 
     private readonly Dictionary<byte[], Type> _knownTypeDict = new(ByteArrayComparer.Instance);
@@ -66,6 +67,11 @@ public class DataContractJsonSerializerSettings : SerializerSettings
         }
 
         Culture = null;
+        if (settings.DateTimeFormat != null)
+        {
+            _dateTimeFormatConverter = new DateTimeFormatConverter(settings.DateTimeFormat);
+        }
+
         AllowRelaxedScalarConversion = true;
         KnownTypes = settings.KnownTypes != null ? settings.KnownTypes : Array.Empty<Type>();
         EmptyArrayHandling = EmptyArrayHandling.Unique;
@@ -308,7 +314,14 @@ public class DataContractJsonSerializerSettings : SerializerSettings
 
         if (type == typeof(DateTimeOffset))
         {
-            return new BuiltInTypeConverter.DateTimeOffsetConverter(this, true);
+            return _dateTimeFormatConverter != null
+                ? new BuiltInTypeConverter.DateTimeOffsetConverter(this, true, _dateTimeFormatConverter)
+                : new BuiltInTypeConverter.DateTimeOffsetConverter(this, true);
+        }
+
+        if (type == typeof(DateTime) && _dateTimeFormatConverter != null)
+        {
+            return _dateTimeFormatConverter;
         }
 
         if (type == typeof(Half) ||
