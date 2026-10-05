@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -74,6 +75,41 @@ public sealed class XmlDocumentRegressionTests
 
         Assert.Equal(expectedJson, doc.RootElement.ToJsonString());
         Assert.Null(doc.RootElement.AsValue().Parent);
+    }
+
+    [Theory]
+    [InlineData(65)]
+    [InlineData(1000)]
+    public void ParseNestingBeyondMaxDepthShouldThrowDocumentParseException(int depth)
+    {
+        var xml = string.Concat(Enumerable.Repeat("<a>", depth));
+
+        Assert.ThrowsAny<DocumentParseException>(() =>
+        {
+            using var doc = XmlDocument.Parse(xml);
+        });
+    }
+
+    [Theory]
+    [InlineData(65)]
+    [InlineData(1000)]
+    public void ParseBalancedNestingBeyondMaxDepthShouldThrowDocumentParseException(int depth)
+    {
+        var xml = string.Concat(Enumerable.Repeat("<a>", depth)) + string.Concat(Enumerable.Repeat("</a>", depth));
+
+        Assert.ThrowsAny<DocumentParseException>(() =>
+        {
+            using var doc = XmlDocument.Parse(xml);
+        });
+    }
+
+    [Fact]
+    public void ParseNestingWithinMaxDepthShouldSucceed()
+    {
+        var xml = string.Concat(Enumerable.Repeat("<a>", 32)) + "x" + string.Concat(Enumerable.Repeat("</a>", 32));
+
+        using var doc = XmlDocument.Parse(xml);
+        Assert.Equal(xml, XmlDocument.EncodeToString(doc.RootElement));
     }
 
     // This worker is selected explicitly by RunParseInChildProcess.

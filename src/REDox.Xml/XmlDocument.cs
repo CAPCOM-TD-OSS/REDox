@@ -406,7 +406,11 @@ public sealed class XmlDocument : Document
 
                         if (c != '/')
                         {
-                            stack.Push((parentId, latestId));
+                            if (!stack.Push((parentId, latestId)))
+                            {
+                                throw new ParseException(this, ParseException.ErrorCode.MaxDepthExceeded, index);
+                            }
+
                             parentId = innerId;
                             latestId = 0;
                         }
@@ -435,6 +439,11 @@ public sealed class XmlDocument : Document
                         while (!(c <= 0x20 || c == '>' || c == '/'))
                         {
                             c = chars[++index];
+                        }
+
+                        if (stack.Count == 0)
+                        {
+                            throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
                         }
 
                         (parentId, latestId) = stack.Pop();
@@ -1117,7 +1126,8 @@ public sealed class XmlDocument : Document
         public enum ErrorCode
         {
             None,
-            InvalidFormat
+            InvalidFormat,
+            MaxDepthExceeded
         }
 
         public ErrorCode _errorCode;
