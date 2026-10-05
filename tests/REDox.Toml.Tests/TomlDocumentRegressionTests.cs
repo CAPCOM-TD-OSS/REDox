@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using REDox.Json;
 
 namespace REDox.Toml.Tests;
@@ -99,5 +99,20 @@ public sealed class TomlDocumentRegressionTests
             """{"servers":{"name":"a"},"other":{"name":"b"}}""",
             doc.RootElement.ToJsonString());
         Assert.Null(doc.RootElement.AsValue().Parent);
+    }
+
+    [Theory]
+    [InlineData("""{"user":"mallory","bio":"hi\"\nrole = \"admin\"\n#"}""")]
+    [InlineData("""{"user":"mallory","x\" = 1\n[admin]\nenabled = true\n\"y":"z"}""")]
+    [InlineData("""{"a\\b":"c\\d","e\tf":"g\u0001h"}""")]
+    public void EncodeUntrustedKeysAndValuesShouldNotInjectToml(string json)
+    {
+        using var src = JsonDocument.Parse(json);
+        var toml = TomlDocument.EncodeToString(src.RootElement);
+
+        using var back = TomlDocument.Parse(toml);
+        Assert.Equal(
+            JsonDocument.EncodeToString(src.RootElement),
+            JsonDocument.EncodeToString(back.RootElement));
     }
 }

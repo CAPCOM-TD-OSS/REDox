@@ -1633,9 +1633,9 @@ public sealed class TomlDocument : Document
                                 writer.WriteUtf8Byte((byte)'\'');
                                 break;
                             case DTokenVariant.StringMultilineSingleQuote:
-                                writer.WriteString("\"\"\""u8);
+                                writer.WriteString("'''"u8);
                                 writer.WriteString(strdata);
-                                writer.WriteString("\"\"\""u8);
+                                writer.WriteString("'''"u8);
                                 break;
                             default:
                                 writer.WriteUtf8Byte((byte)'"');
@@ -1848,17 +1848,35 @@ public sealed class TomlDocument : Document
             return;
         }
 
-        var buf = writer.BeginWriteUtf8Bytes(utf8Bytes.Length * 2 + 2);
-        var pt = 0;
+        WriteTomlString(writer, type == StringKind.SingleQuote ? StringKind.SingleQuote : StringKind.Default,
+            utf8Bytes);
+    }
 
-        var c = type == StringKind.SingleQuote ? (byte)'\'' : (byte)'"';
+    private static StringKind GetOutputStringKind(StringKind type, ReadOnlySpan<byte> utf8Bytes)
+    {
+        switch (type)
+        {
+            case StringKind.SingleQuote:
+            case StringKind.MultilineSingleQuote:
+                var multiline = type == StringKind.MultilineSingleQuote;
 
-        buf[pt++] = c;
-        utf8Bytes.CopyTo(buf.Slice(pt));
-        pt += utf8Bytes.Length;
-        buf[pt++] = c;
+                foreach (var c in utf8Bytes)
+                {
+                    var allowed = c == (byte)'\t' || (c >= 0x20 && c != 0x7f && c != (byte)'\'') ||
+                                  (multiline && c == (byte)'\n');
 
-        writer.EndWriteUtf8Bytes(pt);
+                    if (!allowed)
+                    {
+                        return multiline ? StringKind.MultilineDoubleQuote : StringKind.Default;
+                    }
+                }
+
+                return type;
+            case StringKind.MultilineDoubleQuote:
+                return type;
+            default:
+                return StringKind.Default;
+        }
     }
 
     private static bool IsBareKey(ReadOnlySpan<byte> utf8Bytes)
@@ -1910,7 +1928,9 @@ public sealed class TomlDocument : Document
 
     private static void WriteTomlString(Utf8TextWriter writer, StringKind type, ReadOnlySpan<byte> utf8Bytes)
     {
-        var buf = writer.BeginWriteUtf8Bytes(utf8Bytes.Length * 2 + 6);
+        type = GetOutputStringKind(type, utf8Bytes);
+
+        var buf = writer.BeginWriteUtf8Bytes(utf8Bytes.Length * 6 + 8);
         var pt = 0;
 
         switch (type)
@@ -1946,7 +1966,7 @@ public sealed class TomlDocument : Document
             }
         }
 
-        if (type == StringKind.Default || type == StringKind.MultilineDoubleQuote)
+        if (type != StringKind.SingleQuote && type != StringKind.MultilineSingleQuote)
         {
             foreach (var c in utf8Bytes)
             {
@@ -1981,16 +2001,8 @@ public sealed class TomlDocument : Document
                         buf[pt++] = (byte)'f';
                         break;
                     case 0x0d:
-                        if (type == StringKind.MultilineDoubleQuote)
-                        {
-                            buf[pt++] = c;
-                        }
-                        else
-                        {
-                            buf[pt++] = (byte)'\\';
-                            buf[pt++] = (byte)'r';
-                        }
-
+                        buf[pt++] = (byte)'\\';
+                        buf[pt++] = (byte)'r';
                         break;
                     case 0x00:
                     case 0x01:
