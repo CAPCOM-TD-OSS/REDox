@@ -112,14 +112,22 @@ public class Json5WriteTest
 
         TestContext.Current.TestOutputHelper?.WriteLine(result);
 
+        if (doc.RootElement.TryGetProperty("value", out var val))
+        {
+            val.AsValue().ReplaceWith(DValue.Create("my name", StringKind.SingleQuote));
+            Assert.Equal("'my name'", Json5Document.EncodeToString(val));
+        }
+
         if (doc.RootElement.TryGetProperty("hex", out var hex))
         {
             hex.AsValue().ReplaceWith(123);
+            Assert.Equal("0x7b", Json5Document.EncodeToString(hex));
         }
 
         if (doc.RootElement.TryGetProperty("function", out var func))
         {
             func.AsValue().ReplaceWith("Abc");
+            Assert.Equal("'Abc'", Json5Document.EncodeToString(func));
         }
 
         if (doc.RootElement.TryGetProperty("number", out var number))
@@ -138,6 +146,14 @@ public class Json5WriteTest
                 _output.WriteLine($"{trivia.Kind} {trivia}");
             }
         }
+
+        doc.RootElement.AsObject()["bin"] = DValue.Create(new byte[] { 1, 2, 3, 4, 5 }, ByteStringKind.Base16);
+
+        Assert.Equal(@"""0102030405""", Json5Document.EncodeToString(doc.RootElement.AsObject()["bin"]));
+
+        doc.RootElement.AsObject()["bin"].ReplaceWith(new byte[] { 5, 4, 3 });
+
+        Assert.Equal(@"""050403""", Json5Document.EncodeToString(doc.RootElement.AsObject()["bin"]));
 
         result = Json5Document.EncodeToString(doc.RootElement, writeOptions);
 

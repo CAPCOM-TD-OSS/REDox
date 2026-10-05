@@ -43,6 +43,28 @@ public sealed class IniEditTest
     }
 
     [Fact]
+    public void TriviaEdit()
+    {
+        var map = new DMap();
+        map.Add(123, "ABC");
+        map.Add(true, "DEF");
+
+        map[0].Key.LeadingTrivia.AddLast("===");
+        map[1].Key.LeadingTrivia.AddLast("===");
+
+        var ini = map.AsValue().ToIni(new IniWriteOptions { WriteSpaces = true, PreserveTrivia = true });
+
+        TestContext.Current.TestOutputHelper?.WriteLine(ini);
+
+        Assert.Equal("""
+                     ;===
+                     123 = ABC
+                     ;===
+                     True = DEF
+                     """, NormalizeNewLines(ini));
+    }
+
+    [Fact]
     public void DomEdit()
     {
         var value = DValue.From(new { Flag = true, Name = "MyName", Age = 24, Date = new DateTime(1972, 8, 22) });

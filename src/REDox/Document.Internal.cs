@@ -336,13 +336,8 @@ public abstract partial class Document
             }
             else
             {
-                if (token.IsExtended)
+                if (token.IsExtended && !token.IsExtendInlineLiteral)
                 {
-                    if (token.IsInlinePayload)
-                    {
-                        throw new InvalidOperationException("This document does not support inline payloads.");
-                    }
-
                     _tokens[tokenId].TriviaId = triviaId;
                 }
                 else
@@ -356,7 +351,13 @@ public abstract partial class Document
                         case DTokenKind.Integer:
                             {
                                 var extendId = AllocExtendId();
-                                if (token.Variant == DTokenVariant.IntegerUnsigned)
+                                var kind = token.IntegerKind;
+                                if (kind == IntegerKind.Inherit)
+                                {
+                                    kind = IntegerKind.Default;
+                                }
+
+                                if (kind == IntegerKind.Unsigned)
                                 {
                                     _extends[extendId] = (long)GetUnsignedIntegerValue(tokenId);
                                 }
@@ -365,27 +366,45 @@ public abstract partial class Document
                                     _extends[extendId] = GetSignedIntegerValue(tokenId);
                                 }
 
-                                _tokens[tokenId] = DToken.MakeExtend(token.Variant, triviaId, extendId);
+                                _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), triviaId, extendId);
                             }
                             break;
                         case DTokenKind.String:
                             {
                                 var extendId = AllocExtendId();
+                                var kind = token.StringKind;
+                                if (kind == StringKind.Inherit)
+                                {
+                                    kind = StringKind.Default;
+                                }
+
                                 _extends[extendId] = GetStringValue(tokenId);
-                                _tokens[tokenId] = DToken.MakeExtend(token.Variant, triviaId, extendId);
+                                _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), triviaId, extendId);
                             }
                             break;
                         case DTokenKind.Symbol:
                             {
                                 var extendId = AllocExtendId();
+                                var kind = token.SymbolKind;
+                                if (kind == SymbolKind.Inherit)
+                                {
+                                    kind = SymbolKind.Default;
+                                }
+
                                 _extends[extendId] = GetStringValue(tokenId);
-                                _tokens[tokenId] = DToken.MakeExtend(token.Variant, triviaId, extendId);
+                                _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), triviaId, extendId);
                             }
                             break;
                         case DTokenKind.Float:
                             {
                                 var extendId = AllocExtendId();
-                                if (token.Variant == DTokenVariant.FloatDecimal)
+                                var kind = token.FloatKind;
+                                if (kind == FloatKind.Inherit)
+                                {
+                                    kind = FloatKind.Default;
+                                }
+
+                                if (kind == FloatKind.Decimal)
                                 {
                                     _extends[extendId] = GetDecimalValue(tokenId);
                                 }
@@ -394,13 +413,26 @@ public abstract partial class Document
                                     _extends[extendId] = GetFloatingValue(tokenId);
                                 }
 
-                                _tokens[tokenId] = DToken.MakeExtend(token.Variant, triviaId, extendId);
+                                _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), triviaId, extendId);
+                            }
+                            break;
+                        case DTokenKind.InlineFloat:
+                            {
+                                var extendId = AllocExtendId();
+                                _extends[extendId] = GetFloatingValue(tokenId);
+                                _tokens[tokenId] = DToken.MakeExtend(FloatKind.Default.ToVariant(), triviaId, extendId);
                             }
                             break;
                         case DTokenKind.Timestamp:
                             {
                                 var extendId = AllocExtendId();
-                                if (token.Variant == DTokenVariant.TimestampOffsetDateTime)
+                                var kind = token.TimestampKind;
+                                if (kind == TimestampKind.Inherit)
+                                {
+                                    kind = TimestampKind.Default;
+                                }
+
+                                if (kind == TimestampKind.OffsetDateTime)
                                 {
                                     _extends[extendId] = GetDateTimeOffsetValue(tokenId);
                                 }
@@ -409,21 +441,33 @@ public abstract partial class Document
                                     _extends[extendId] = GetDateTimeValue(tokenId);
                                 }
 
-                                _tokens[tokenId] = DToken.MakeExtend(token.Variant, triviaId, extendId);
+                                _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), triviaId, extendId);
                             }
                             break;
                         case DTokenKind.ByteString:
                             {
                                 var extendId = AllocExtendId();
+                                var kind = token.ByteStringKind;
+                                if (kind == ByteStringKind.Inherit)
+                                {
+                                    kind = ByteStringKind.Default;
+                                }
+
                                 _extends[extendId] = GetByteStringValue(tokenId).ToArray();
-                                _tokens[tokenId] = DToken.MakeExtend(token.Variant, triviaId, extendId);
+                                _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), triviaId, extendId);
                             }
                             break;
                         case DTokenKind.BigNumber:
                             {
                                 var extendId = AllocExtendId();
+                                var kind = token.BigNumberKind;
+                                if (kind == BigNumberKind.Inherit)
+                                {
+                                    kind = BigNumberKind.Default;
+                                }
+
                                 _extends[extendId] = GetBigNumberValue(tokenId).ToArray();
-                                _tokens[tokenId] = DToken.MakeExtend(token.Variant, triviaId, extendId);
+                                _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), triviaId, extendId);
                             }
                             break;
                         default:
@@ -916,7 +960,7 @@ public abstract partial class Document
 
         if (typeof(T) == typeof(string))
         {
-            return ExtendToken(tokenId, DTokenVariant.String, Unsafe.As<T, string?>(ref value));
+            return ExtendToken(tokenId, StringKind.Inherit.ToVariant(), Unsafe.As<T, string?>(ref value));
         }
 
         if (typeof(T) == typeof(Guid))
@@ -1197,10 +1241,10 @@ public abstract partial class Document
                     switch (literalToken.Kind)
                     {
                         case DTokenKind.Integer:
-                            return ExtendToken(tokenId, DTokenVariant.Integer,
+                            return ExtendToken(tokenId, literalToken.IntegerKind.ToVariant(),
                                 DToken.DecodeInlineIntegerPayload(literalToken));
                         case DTokenKind.Float:
-                            return ExtendToken(tokenId, DTokenVariant.FloatSingle,
+                            return ExtendToken(tokenId, literalToken.FloatKind.ToVariant(),
                                 (double)DToken.DecodeInlineSinglePayload(literalToken));
                     }
 
@@ -2859,7 +2903,7 @@ public abstract partial class Document
                     writer.WriteBoolean(reader.ReadBoolean(tokenId));
                     break;
                 case DTokenKind.Integer:
-                    if (token.Variant == DTokenVariant.IntegerUnsigned)
+                    if (token.IntegerKind == IntegerKind.Unsigned)
                     {
                         writer.WriteUInt64(reader.ReadUInt64(tokenId));
                     }
@@ -2876,7 +2920,6 @@ public abstract partial class Document
                             writer.WriteDecimal(reader.ReadDecimal(tokenId));
                             break;
                         case FloatKind.Single:
-                        case FloatKind.Inherit:
                             writer.WriteSingle(reader.ReadSingle(tokenId));
                             break;
                         case FloatKind.Half:
@@ -2906,7 +2949,7 @@ public abstract partial class Document
                     writer.WriteNull();
                     break;
                 case DTokenKind.Timestamp:
-                    if (token.Variant == DTokenVariant.TimestampOffsetDateTime)
+                    if (token.TimestampKind == TimestampKind.OffsetDateTime)
                     {
                         writer.WriteDateTimeOffset(reader.ReadDateTimeOffset(tokenId));
                     }
