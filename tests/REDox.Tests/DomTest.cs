@@ -4,12 +4,73 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using Newtonsoft.Json.Linq;
 using REDox.Json;
+using REDox.Serialization;
 using DoxJsonDocument = REDox.Json.JsonDocument;
 
 namespace REDox.Tests;
 
 public sealed class DomTest
 {
+    [Fact]
+    public void ReplaceLoopInlineLiteralAndExtend()
+    {
+        var arr = new DArray { 1, 2, 3 };
+
+        for (var i = 0; i < 1000; i++)
+        {
+            switch (i & 3)
+            {
+                case 0:
+                    arr[0] = true;
+                    break;
+                case 1:
+                    arr[0] = "ABC";
+                    break;
+                case 2:
+                    arr[0] = 123;
+                    break;
+                case 3:
+                    arr[0] = DateTime.Now;
+                    break;
+            }
+        }
+
+        var reader = new DataReader(arr);
+
+        Assert.Equal(2, reader.Document.GetExtends().Length);
+        Assert.Equal(6, reader.Document.GetTokens().Length);
+    }
+
+    [Fact]
+    public void ReplaceLoopInlineLiteralAndExtend2()
+    {
+        var root = DValue.ParseJson("true");
+
+        for (var i = 0; i < 1000; i++)
+        {
+            switch (i & 3)
+            {
+                case 0:
+                    root.ReplaceWith(new DObject());
+                    break;
+                case 1:
+                    root.ReplaceWith(true);
+                    break;
+                case 2:
+                    root.ReplaceWith(new DArray());
+                    break;
+                case 3:
+                    root.ReplaceWith(123);
+                    break;
+            }
+        }
+
+        var reader = new DataReader(root);
+
+        Assert.Equal(1, reader.Document.GetExtends().Length);
+        Assert.Equal(3, reader.Document.GetTokens().Length);
+    }
+
     [Fact]
     public void ObjectView_IsInvalidated_WhenConvertedToMap()
     {

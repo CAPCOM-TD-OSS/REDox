@@ -1228,6 +1228,11 @@ public abstract partial class Document
                 }
             }
 
+            if (token.IsExtended && !token.IsExtendInlineLiteral)
+            {
+                _emptyExtendId = AllocEmptyToken(DToken.MakeEmptyExtend(_emptyExtendId, token.ExtendId));
+            }
+
             _tokens[tokenId] = literalToken;
         }
         else
