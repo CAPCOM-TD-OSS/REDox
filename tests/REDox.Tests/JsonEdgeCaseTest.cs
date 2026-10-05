@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -8,6 +9,8 @@ namespace REDox.Tests;
 
 public sealed class JsonEdgeCaseTest
 {
+    private const int LargeStringSpecialLengthEncodingThreshold = 0x1ffffff;
+
     private static readonly SerializerSettings s_settings = SerializerSettings.Default;
 
     private static readonly JsonDocumentOptions s_ndjsonOptions = new()
@@ -180,5 +183,47 @@ public sealed class JsonEdgeCaseTest
 
         // NDJSON 出力は WriteIndented 指定があっても NDJSON として再解析できる
         Assert.Null(error);
+    }
+
+    [Fact]
+    public void EncodeToString_LargeUnescapedString_ShouldPreserveFullRawValue()
+    {
+        var value = new string('a', LargeStringSpecialLengthEncodingThreshold + 1);
+        var json = "\"" + value + "\"";
+
+        using var doc = JsonDocument.Parse(json);
+
+        var encoded = JsonDocument.EncodeToString(doc.RootElement);
+
+        Assert.Equal(json.Length, encoded.Length);
+        Assert.True(json.AsSpan().SequenceEqual(encoded.AsSpan()), "Encoded JSON did not preserve the large string.");
+    }
+
+    [Fact]
+    public void GetString_LargeEscapedString_ShouldIgnoreEscapedQuoteWhenResolvingCompressedLength()
+    {
+        var prefix = new string('a', LargeStringSpecialLengthEncodingThreshold + 1);
+        var suffix = new string('b', 7);
+        var json = "\"" + prefix + "\\\"" + suffix + "\"";
+
+        using var doc = JsonDocument.Parse(json);
+
+        var decoded = doc.RootElement.GetString();
+
+        Assert.NotNull(decoded);
+        Assert.Equal(prefix.Length + 1 + suffix.Length, decoded.Length);
+        Assert.Equal('"', decoded[prefix.Length]);
+        Assert.EndsWith(suffix, decoded);
+    }
+
+    [Fact]
+    public void GetValueValidationErrors_LargeString_ShouldValidateFullValue()
+    {
+        var prefix = new string('a', LargeStringSpecialLengthEncodingThreshold + 1);
+        var json = "\"" + prefix + "\\\"bbb\u0001\"";
+
+        using var doc = JsonDocument.Parse(json);
+
+        Assert.NotEmpty(doc.GetValueValidationErrors());
     }
 }

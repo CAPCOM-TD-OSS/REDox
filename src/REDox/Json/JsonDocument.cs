@@ -350,11 +350,20 @@ public sealed class JsonDocument : Document
             case DTokenKind.Symbol:
                 {
                     var param = DToken.DecodeLengthOffsetPayload(token);
-                    var bytes = _source.Span.Slice(param.offset, param.length);
+                    ReadOnlySpan<byte> bytes;
 
-                    if (token.Variant == DTokenVariant.StringMultilineDoubleQuote && param.length << 8 > 0x3fffffff)
+                    if (token.Variant == DTokenVariant.StringMultilineDoubleQuote)
                     {
-                        return new ParseException(this, ParseException.ErrorCode.TooLargeValue, param.offset);
+                        if ((param.length & 0xffffff) << 8 > 0x3fffffff)
+                        {
+                            return new ParseException(this, ParseException.ErrorCode.TooLargeValue, param.offset);
+                        }
+
+                        bytes = GetStringBlob(token, out _);
+                    }
+                    else
+                    {
+                        bytes = _source.Span.Slice(param.offset, param.length);
                     }
 
                     for (var i = 0; i < bytes.Length; i++)
@@ -1376,18 +1385,28 @@ public sealed class JsonDocument : Document
 
         length <<= 8;
 
-        var c = blob[length];
-
-        while (c != '"')
+        while (true)
         {
-            length++;
-
-            if (c == '\'')
+            var quoteOffset = blob.Slice(length).IndexOf((byte)'"');
+            if (quoteOffset < 0)
             {
-                length++;
+                break;
             }
 
-            c = blob[length];
+            var quoteIndex = length + quoteOffset;
+            var backslashCount = 0;
+            for (var i = quoteIndex - 1; i >= 0 && blob[i] == '\\'; i--)
+            {
+                backslashCount++;
+            }
+
+            if ((backslashCount & 1) == 0)
+            {
+                length = quoteIndex;
+                break;
+            }
+
+            length = quoteIndex + 1;
         }
 
         return blob.Slice(0, length);
@@ -1518,9 +1537,16 @@ public sealed class JsonDocument : Document
             return false;
         }
 
-        var param = DToken.DecodeLengthOffsetPayload(token);
+        if (token.Variant == DTokenVariant.StringMultilineDoubleQuote)
+        {
+            data = GetStringBlob(token, out _);
+        }
+        else
+        {
+            var param = DToken.DecodeLengthOffsetPayload(token);
 
-        data = _source.Slice(param.offset, param.length).Span;
+            data = _source.Slice(param.offset, param.length).Span;
+        }
 
         return true;
     }
