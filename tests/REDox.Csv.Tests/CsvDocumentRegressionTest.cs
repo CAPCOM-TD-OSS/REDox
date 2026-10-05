@@ -33,6 +33,81 @@ public class CsvDocumentRegressionTest
             doc.RootElement.ToJsonString());
     }
 
+    [Theory]
+    [InlineData("name,level\nLeon,42\nClaire,30,y,z\n", 30)]
+    [InlineData("id,name\n1,Leon,\n2,Claire,\n", 15)]
+    [InlineData("id,name\n1,Leon,x", 16)]
+    [InlineData("id,name\n1\n", 9)]
+    [InlineData("id,name\n1", 9)]
+    [InlineData("id,name\r\n1\r\n", 10)]
+    [InlineData("id,name\n1,Leon\n2\n", 16)]
+    [InlineData("id,name\n\n", 8)]
+    public void ParseHeaderRecordWithMismatchedColumnCountThrowsAndTryParseReturnsFalse(
+        string csv, int expectedBytePosition)
+    {
+        var ex = Assert.ThrowsAny<DocumentParseException>(() =>
+        {
+            using var doc = CsvDocument.Parse(
+                csv,
+                options: new CsvDocumentOptions { HasHeaderRecord = true });
+        });
+
+        Assert.Contains("ColumnCountMismatch", ex.Message);
+        Assert.Equal(expectedBytePosition, ex.BytePosition);
+
+        var parsed = CsvDocument.TryParse(
+            Encoding.UTF8.GetBytes(csv).AsSpan(),
+            out var document,
+            options: new CsvDocumentOptions { HasHeaderRecord = true });
+
+        using (document)
+        {
+            Assert.False(parsed);
+            Assert.Null(document);
+        }
+    }
+
+    [Theory]
+    [InlineData("id,name\n1,\n2,Claire\n", """[{"id":"1","name":""},{"id":"2","name":"Claire"}]""")]
+    [InlineData("id,name\r\n1,\r\n2,Claire", """[{"id":"1","name":""},{"id":"2","name":"Claire"}]""")]
+    [InlineData("id,name\n1,", """[{"id":"1","name":""}]""")]
+    [InlineData("id,name\n1,\"\"", """[{"id":"1","name":""}]""")]
+    [InlineData("id,name\n1,\"Leon,\nKennedy\"\n", """[{"id":"1","name":"Leon,\nKennedy"}]""")]
+    public void ParseHeaderRecordWithMatchingColumnCountPreservesValues(string csv, string expectedJson)
+    {
+        using var doc = CsvDocument.Parse(
+            csv,
+            options: new CsvDocumentOptions { HasHeaderRecord = true });
+
+        Assert.Equal(expectedJson, doc.RootElement.ToJsonString());
+        Assert.Null(doc.RootElement.AsValue().Parent);
+    }
+
+    [Theory]
+    [InlineData("id;name\n1\n")]
+    [InlineData("id;name\n1;Leon;\n")]
+    public void ParseHeaderRecordWithCustomSeparatorRejectsMismatchedColumnCount(string csv)
+    {
+        var ex = Assert.ThrowsAny<DocumentParseException>(() =>
+        {
+            using var doc = CsvDocument.Parse(
+                csv,
+                options: new CsvDocumentOptions { HasHeaderRecord = true, SeparatorChar = ';' });
+        });
+
+        Assert.Contains("ColumnCountMismatch", ex.Message);
+    }
+
+    [Fact]
+    public void ParseRowsWithoutHeaderAllowsDifferentColumnCounts()
+    {
+        using var doc = CsvDocument.Parse("id,name\n1\n2,Claire,\n");
+
+        Assert.Equal(
+            """[["id","name"],["1"],["2","Claire",""]]""",
+            doc.RootElement.ToJsonString());
+    }
+
     [Fact]
     public void ParseReadOnlySpanCopiesInput()
     {

@@ -301,7 +301,14 @@ public sealed class CsvDocument : Document
                 {
                     if (hasHeader)
                     {
-                        headerTbl.EnsureCount(column + 1);
+                        // Reject extra fields before allocating a missing header token;
+                        // at the end of a record, reject missing fields as well.
+                        if (column >= headerTbl.Count ||
+                            (c != separatorChar && column + 1 != headerTbl.Count))
+                        {
+                            return new ParseException(this, ParseException.ErrorCode.ColumnCountMismatch, index);
+                        }
+
                         AllocToken(headerTbl[column]);
                     }
 
@@ -672,7 +679,8 @@ public sealed class CsvDocument : Document
         public enum ErrorCode
         {
             None,
-            UnterminatedQuotedField
+            UnterminatedQuotedField,
+            ColumnCountMismatch
         }
 
         private readonly ErrorCode _errorCode;
