@@ -1279,6 +1279,14 @@ static class Utf8Helper
                 }
             }
 
+            if (dateTimeOffset && DateTimeOffset.TryParse(chars, culture, DateTimeStyles.None, out var parsedOffset))
+            {
+                // Preserve the parsed offset and its date when the input contains only a time.
+                value = parsedOffset.UtcDateTime;
+                offset = parsedOffset.Offset;
+                return true;
+            }
+
             if (chars.Length >= 6)
             {
                 var offsetSpan = chars.Slice(chars.Length - 6);

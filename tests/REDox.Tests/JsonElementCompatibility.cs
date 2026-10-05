@@ -2199,6 +2199,20 @@ public sealed class JsonElementCompatibility
 
 
     [Theory]
+    [InlineData(@"""10:30:10Z""")]
+    [InlineData(@"""10:30:10+09:00""")]
+    [InlineData(@"""10:30:10-05:30""")]
+    public void TimeOnlyDateTimeOffsetMatchesNewtonsoftJson(string json)
+    {
+        using var document = Json.JsonDocument.Parse(json, SerializerSettings.Default);
+        var expected = (DateTimeOffset)JToken.Parse(json);
+        var actual = (DateTimeOffset)document.RootElement.AsValue();
+
+        Assert.Equal(expected, actual);
+        Assert.Equal(expected.Offset, actual.Offset);
+    }
+
+    [Theory]
     [InlineData(@"""550e8400-e29b-41d4-a716-446655440000""", Mode.Strict)]
     [InlineData(@"""d3ea415b-5136-407a-9a00-5339d1b6e4d2""", Mode.Strict)]
     [InlineData(@"""550E8400-E29B-41D4-A716-446655440000""", Mode.Strict)] // 全大文字
