@@ -578,6 +578,12 @@ public sealed class TomlDocument : Document
             {
                 case Lexer.Comment:
                     {
+                        // A comment cannot begin before a table header's closing brackets.
+                        if (tableId != 0)
+                        {
+                            throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
+                        }
+
                         var lineend = linestart != index;
 
                         c = bytes[++index];
