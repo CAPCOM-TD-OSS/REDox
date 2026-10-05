@@ -365,6 +365,33 @@ public class DataContractJsonSerializerSettings : SerializerSettings
         {
             if (converter.CanConvert(type))
             {
+                if (DictionaryFormatHandling == DictionaryFormatHandling.Object &&
+                    converter is BuiltInTypeConverter builtInConverter)
+                {
+                    var valueConverter = builtInConverter.CreateConverter(type, this);
+                    if (type == typeof(DateOnly))
+                    {
+                        // Simple dictionary keys use DateOnly.Parse(string), including the current calendar.
+                        return new ParseKeyConverter<DateOnly>((DataConverter<DateOnly>)valueConverter);
+                    }
+
+                    return Type.GetTypeCode(type) switch
+                    {
+                        TypeCode.SByte => new NumericKeyConverter<sbyte>((DataConverter<sbyte>)valueConverter),
+                        TypeCode.Byte => new NumericKeyConverter<byte>((DataConverter<byte>)valueConverter),
+                        TypeCode.Int16 => new NumericKeyConverter<short>((DataConverter<short>)valueConverter),
+                        TypeCode.UInt16 => new NumericKeyConverter<ushort>((DataConverter<ushort>)valueConverter),
+                        TypeCode.Int32 => new NumericKeyConverter<int>((DataConverter<int>)valueConverter),
+                        TypeCode.UInt32 => new NumericKeyConverter<uint>((DataConverter<uint>)valueConverter),
+                        TypeCode.Int64 => new NumericKeyConverter<long>((DataConverter<long>)valueConverter),
+                        TypeCode.UInt64 => new NumericKeyConverter<ulong>((DataConverter<ulong>)valueConverter),
+                        TypeCode.Single => new NumericKeyConverter<float>((DataConverter<float>)valueConverter),
+                        TypeCode.Double => new NumericKeyConverter<double>((DataConverter<double>)valueConverter),
+                        TypeCode.Decimal => new NumericKeyConverter<decimal>((DataConverter<decimal>)valueConverter),
+                        _ => valueConverter
+                    };
+                }
+
                 return converter;
             }
         }

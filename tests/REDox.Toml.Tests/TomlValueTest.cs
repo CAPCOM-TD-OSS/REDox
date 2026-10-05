@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 
 namespace REDox.Toml.Tests;
 
@@ -84,6 +85,35 @@ public sealed class TomlValueTest
     }
 
     [Theory]
+    [InlineData("pt-BR", "v = 1.0", 1.0)]
+    [InlineData("pt-BR", "v = 3.1415", 3.1415)]
+    [InlineData("pt-BR", "v = -0.01", -0.01)]
+    [InlineData("pt-BR", "v = 9_224_617.445_991_228", 9224617.445991228)]
+    [InlineData("pt-BR", "v = 6.626e-34", 6.626e-34)]
+    [InlineData("pt-BR", "v = 5e+22", 5e+22)]
+    [InlineData("de-DE", "v = 1.0", 1.0)]
+    [InlineData("de-DE", "v = 3.1415", 3.1415)]
+    [InlineData("de-DE", "v = -0.01", -0.01)]
+    [InlineData("de-DE", "v = 9_224_617.445_991_228", 9224617.445991228)]
+    [InlineData("de-DE", "v = 6.626e-34", 6.626e-34)]
+    [InlineData("en-US", "v = 3.1415", 3.1415)]
+    public void Float_ShouldDecodeRegardlessOfCurrentCulture(string cultureName, string toml, double expected)
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            // TOML always uses a dot as the decimal separator, including when the culture uses a comma.
+            using var document = TomlDocument.Parse(toml);
+            Assert.Equal(expected, document.RootElement.GetProperty("v").GetDouble());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    [Theory]
     [InlineData("v = inf", double.PositiveInfinity)]
     [InlineData("v = +inf", double.PositiveInfinity)]
     [InlineData("v = -inf", double.NegativeInfinity)]
@@ -112,6 +142,27 @@ public sealed class TomlValueTest
     }
 
     // ---- Date / Time ----
+
+    [Theory]
+    [InlineData("pt-BR")]
+    [InlineData("de-DE")]
+    [InlineData("th-TH")]
+    public void LocalDateTime_ShouldDecodeRegardlessOfCurrentCulture(string cultureName)
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            using var document = TomlDocument.Parse("v = 2024-01-02T03:04:05");
+            var value = document.RootElement.GetProperty("v").GetDateTime();
+            Assert.Equal(new DateTime(2024, 1, 2, 3, 4, 5), value);
+            Assert.Equal(DateTimeKind.Unspecified, value.Kind);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
 
     [Fact]
     public void OffsetDateTime_ShouldDecode()

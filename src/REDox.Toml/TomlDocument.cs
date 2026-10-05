@@ -5,6 +5,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using REDox.Serialization;
@@ -1651,7 +1652,8 @@ public sealed class TomlDocument : Document
                     }
                     else
                     {
-                        writer.WriteString(reader.ReadDateTime(valueId).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
+                        writer.WriteString(reader.ReadDateTime(valueId).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'",
+                            CultureInfo.InvariantCulture));
                     }
 
                     break;
@@ -2098,7 +2100,8 @@ public sealed class TomlDocument : Document
             return double.NegativeInfinity;
         }
 
-        return double.Parse(Encoding.UTF8.GetString(span).Replace("_", ""));
+        return double.Parse(Encoding.UTF8.GetString(span).Replace("_", ""), NumberStyles.Float,
+            CultureInfo.InvariantCulture);
     }
 
     protected override long DecodeInteger(DToken token)
@@ -2249,7 +2252,7 @@ public sealed class TomlDocument : Document
         var param = DToken.DecodeLengthOffsetPayload(token);
         var span = _source.Span.Slice(param.offset, param.length);
 
-        return DateTime.Parse(Encoding.UTF8.GetString(span));
+        return DateTime.Parse(Encoding.UTF8.GetString(span), CultureInfo.InvariantCulture);
     }
 
     protected override ReadOnlySpan<byte> DecodeTrivia(DToken token)

@@ -1,9 +1,35 @@
-﻿using PeterO.Cbor;
+﻿using System.Globalization;
+using System.Numerics;
+using System.Text;
+using PeterO.Cbor;
 
 namespace REDox.Cbor.Tests;
 
 public sealed class CborWriterTest
 {
+    [Theory]
+    [InlineData("123456789012345678901234567890")]
+    [InlineData("-123456789012345678901234567890")]
+    public void WriteBigNumberIgnoresAmbientSignSymbols(string text)
+    {
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            var culture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+            culture.NumberFormat.NegativeSign = "~";
+            CultureInfo.CurrentCulture = culture;
+            var expected = new System.Formats.Cbor.CborWriter();
+            expected.WriteBigInteger(BigInteger.Parse(text, CultureInfo.InvariantCulture));
+            using var actual = new CborWriter(SerializerSettings.Default);
+            actual.WriteBigNumber(Encoding.UTF8.GetBytes(text));
+            Assert.Equal(expected.Encode(), actual.Encode());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+    }
+
     [Fact]
     public void WriteInfinityLength()
     {

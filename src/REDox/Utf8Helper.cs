@@ -1135,6 +1135,13 @@ static class Utf8Helper
     public static bool TryParseTimestamp(ReadOnlySpan<byte> source, out DateTime value, out TimeSpan? offset,
         string? formatString, bool dateTimeOffset)
     {
+        return TryParseTimestamp(source, out value, out offset, formatString, dateTimeOffset,
+            CultureInfo.InvariantCulture);
+    }
+
+    public static bool TryParseTimestamp(ReadOnlySpan<byte> source, out DateTime value, out TimeSpan? offset,
+        string? formatString, bool dateTimeOffset, CultureInfo? culture)
+    {
         if (source.IsEmpty)
         {
             value = default;
@@ -1238,7 +1245,7 @@ static class Utf8Helper
 
             if (!string.IsNullOrEmpty(formatString))
             {
-                if (DateTime.TryParseExact(chars, formatString, null, DateTimeStyles.RoundtripKind, out value))
+                if (DateTime.TryParseExact(chars, formatString, culture, DateTimeStyles.RoundtripKind, out value))
                 {
                     return true;
                 }
@@ -1284,7 +1291,7 @@ static class Utf8Helper
                 }
             }
 
-            if (DateTime.TryParse(chars, out value))
+            if (DateTime.TryParse(chars, culture, DateTimeStyles.None, out value))
             {
                 if (offset != null)
                 {

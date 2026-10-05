@@ -859,7 +859,7 @@ public class DomExtendTest
             0,
             -1,
             long.MaxValue,
-            decimal.Parse("1234567890.123456789"),
+            1234567890.123456789m,
             1.2300m
         };
 

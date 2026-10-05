@@ -5,6 +5,7 @@ using System;
 using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using REDox.Json;
@@ -1700,10 +1701,10 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
             {
                 if (exKind == DTokenVariant.IntegerUnsigned)
                 {
-                    return ((ulong)Payload).ToString();
+                    return ((ulong)Payload).ToString(CultureInfo.InvariantCulture);
                 }
 
-                return Payload.ToString();
+                return Payload.ToString(CultureInfo.InvariantCulture);
             }
 
             if (kind == DTokenKind.Boolean)
@@ -1714,13 +1715,13 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
             if (kind == DTokenKind.Timestamp)
             {
                 var payload = Payload;
-                return Unsafe.BitCast<long, DateTime>(payload).ToString("o");
+                return Unsafe.BitCast<long, DateTime>(payload).ToString("o", CultureInfo.InvariantCulture);
             }
 
             if (kind == DTokenKind.Float)
             {
                 var payload = Payload;
-                return Unsafe.BitCast<long, double>(payload).ToString("R");
+                return Unsafe.BitCast<long, double>(payload).ToString("R", CultureInfo.InvariantCulture);
             }
 
             if (kind == DTokenKind.String || kind == DTokenKind.Symbol)
@@ -1744,6 +1745,11 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
                     return new Guid((byte[]?)Instance, true).ToString();
                 }
             }
+        }
+
+        if (Instance is decimal decimalValue)
+        {
+            return decimalValue.ToString(CultureInfo.InvariantCulture);
         }
 
         return Instance?.ToString();

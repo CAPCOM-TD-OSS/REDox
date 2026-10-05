@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -677,7 +678,7 @@ public class JsonValueCompatibility
     [InlineData("4503599627370496")]
     public void DecimalValue(string text)
     {
-        var value = decimal.Parse(text);
+        var value = decimal.Parse(text, CultureInfo.InvariantCulture);
 
         JsonNode s = JsonValue.Create(value);
         var d = DValue.Create(value);

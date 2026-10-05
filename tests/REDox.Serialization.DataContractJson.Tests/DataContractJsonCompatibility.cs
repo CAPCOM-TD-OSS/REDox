@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
@@ -11,6 +12,7 @@ namespace REDox.Serialization.DataContractJson.Tests;
 
 public sealed class DataContractJsonCompatibility
 {
+    private static readonly string[] CultureNames = { "", "pt-BR", "sv-SE", "ja-JP", "th-TH" };
     private readonly ITestOutputHelper _output;
 
     public DataContractJsonCompatibility(ITestOutputHelper output)
@@ -98,6 +100,73 @@ public sealed class DataContractJsonCompatibility
                 yield return new[] { inst.src, inst.dest, settings };
             }
         }
+    }
+
+    public static IEnumerable<object[]> GetSerializeCultureData()
+    {
+        return AddCultureVariations(GetSerializeData());
+    }
+
+    public static IEnumerable<object[]> GetDeserializeCultureData()
+    {
+        return AddCultureVariations(GetDeserializeData());
+    }
+
+    public static IEnumerable<object[]> GetTransitionCultureData()
+    {
+        return AddCultureVariations(GetTransitionData());
+    }
+
+    private static IEnumerable<object[]> AddCultureVariations(IEnumerable<object[]> source)
+    {
+        foreach (var row in source)
+        {
+            foreach (var cultureName in CultureNames)
+            {
+                var variation = new object[row.Length + 1];
+                Array.Copy(row, variation, row.Length);
+                variation[row.Length] = cultureName;
+                yield return variation;
+            }
+        }
+    }
+
+    private static void WithCurrentCulture(string cultureName, Action action)
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            action();
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(GetSerializeCultureData))]
+    public void SerializeWithCurrentCulture(object inst,
+        System.Runtime.Serialization.Json.DataContractJsonSerializerSettings settings, string cultureName)
+    {
+        WithCurrentCulture(cultureName, () => Serialize(inst, settings));
+    }
+
+    [Theory]
+    [MemberData(nameof(GetDeserializeCultureData))]
+    public void DeserializeWithCurrentCulture(object inst,
+        System.Runtime.Serialization.Json.DataContractJsonSerializerSettings settings, string cultureName)
+    {
+        WithCurrentCulture(cultureName, () => Deserialize(inst, settings));
+    }
+
+    [Theory]
+    [MemberData(nameof(GetTransitionCultureData))]
+    public void TransitionWithCurrentCulture(object src, object dst,
+        System.Runtime.Serialization.Json.DataContractJsonSerializerSettings settings, string cultureName)
+    {
+        WithCurrentCulture(cultureName, () => Transition(src, dst, settings));
     }
 
     [Theory]

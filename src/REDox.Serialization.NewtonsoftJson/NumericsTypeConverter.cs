@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Globalization;
 using System.Numerics;
 using System.Text;
 
@@ -40,12 +41,14 @@ sealed class NumericsTypeConverter : DataConverterFactory
                 return new BigInteger(reader.ReadByteString(tokenId));
             }
 
-            return BigInteger.Parse(Encoding.UTF8.GetString(reader.ReadBigNumber(tokenId)));
+            return BigInteger.Parse(Encoding.UTF8.GetString(reader.ReadBigNumber(tokenId)),
+                CultureInfo.InvariantCulture);
         }
 
         public override void Write(DataWriter writer, BigInteger value)
         {
-            writer.WriteBigNumber(Encoding.UTF8.GetBytes(value.ToString()), BigNumberKind.Integer);
+            writer.WriteBigNumber(Encoding.UTF8.GetBytes(value.ToString(CultureInfo.InvariantCulture)),
+                BigNumberKind.Integer);
         }
     }
 }

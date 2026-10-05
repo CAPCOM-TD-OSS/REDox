@@ -4,6 +4,7 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Globalization;
 using System.IO;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -182,7 +183,8 @@ public sealed class CborWriter : DataWriter, IDisposable, IAsyncDisposable
     {
         NextElement();
 
-        if (BigInteger.TryParse(Encoding.UTF8.GetString(value), out var number))
+        if (BigInteger.TryParse(Encoding.UTF8.GetString(value), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out var number))
         {
             WriteBigIntegerValue(_writer, number);
         }

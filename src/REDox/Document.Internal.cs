@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using REDox.Serialization;
@@ -1837,7 +1838,8 @@ public abstract partial class Document
                 ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(ulong));
                 if (token.IsExtended)
                 {
-                    if (ulong.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var value))
+                    if (ulong.TryParse(GetStringValue(tokenId).AsSpan().Trim(), NumberStyles.Integer,
+                            CultureInfo.InvariantCulture, out var value))
                     {
                         return value;
                     }
@@ -1903,14 +1905,14 @@ public abstract partial class Document
                     switch (token.Variant)
                     {
                         case DTokenVariant.BigNumberInt128:
-                            if (Int128.TryParse(nvalue, out var int128))
+                            if (Int128.TryParse(nvalue, CultureInfo.InvariantCulture, out var int128))
                             {
                                 return (ulong)int128;
                             }
 
                             break;
                         case DTokenVariant.BigNumberUInt128:
-                            if (UInt128.TryParse(nvalue, out var uint128))
+                            if (UInt128.TryParse(nvalue, CultureInfo.InvariantCulture, out var uint128))
                             {
                                 return (ulong)uint128;
                             }
@@ -1954,7 +1956,8 @@ public abstract partial class Document
                 ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(long));
                 if (token.IsExtended)
                 {
-                    if (long.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var value))
+                    if (long.TryParse(GetStringValue(tokenId).AsSpan().Trim(), NumberStyles.Integer,
+                            CultureInfo.InvariantCulture, out var value))
                     {
                         return value;
                     }
@@ -2020,14 +2023,14 @@ public abstract partial class Document
                     switch (token.Variant)
                     {
                         case DTokenVariant.BigNumberInt128:
-                            if (Int128.TryParse(nvalue, out var int128))
+                            if (Int128.TryParse(nvalue, CultureInfo.InvariantCulture, out var int128))
                             {
                                 return (long)int128;
                             }
 
                             break;
                         case DTokenVariant.BigNumberUInt128:
-                            if (UInt128.TryParse(nvalue, out var uint128))
+                            if (UInt128.TryParse(nvalue, CultureInfo.InvariantCulture, out var uint128))
                             {
                                 return (long)uint128;
                             }
@@ -2075,7 +2078,7 @@ public abstract partial class Document
 
                     if (Utf8Helper.TryParseTimestamp(source, out var dateTime, out var offset,
                             Settings.DateFormatString,
-                            false))
+                            false, Settings.Culture))
                     {
                         if (offset.HasValue)
                         {
@@ -2344,7 +2347,7 @@ public abstract partial class Document
                     var source = GetUtf8BytesValue(tokenId);
 
                     if (Utf8Helper.TryParseTimestamp(source, out var result, out var offset, Settings.DateFormatString,
-                            true))
+                            true, Settings.Culture))
                     {
                         const long maxOffsetTicks = 504_000_000_000; // 14:00
 
@@ -2488,7 +2491,8 @@ public abstract partial class Document
 
                     if (token.IsExtended)
                     {
-                        if (decimal.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var dvalue))
+                        if (decimal.TryParse(GetStringValue(tokenId).AsSpan().Trim(), NumberStyles.Number,
+                                CultureInfo.InvariantCulture, out var dvalue))
                         {
                             return dvalue;
                         }
@@ -2569,7 +2573,9 @@ public abstract partial class Document
                 ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(double));
                 if (token.IsExtended)
                 {
-                    if (double.TryParse(GetStringValue(tokenId).AsSpan().Trim(), out var result))
+                    if (double.TryParse(GetStringValue(tokenId).AsSpan().Trim(),
+                            NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture,
+                            out var result))
                     {
                         return result;
                     }
