@@ -253,9 +253,6 @@ public sealed class XmlDocument : Document
         var parentId = AllocToken(DToken.MakeArray(0));
         var latestId = 0U;
 
-        var instructionParentId = 0U;
-        var instructionLatestId = 0U;
-
         while (index < chars.Length)
         {
             var c = chars[index];
@@ -296,7 +293,7 @@ public sealed class XmlDocument : Document
                 latestId = innerId;
             }
 
-            c = chars[++index];
+            c = ReadXmlByte(chars, ++index);
 
             switch ((char)c)
             {
@@ -332,18 +329,23 @@ public sealed class XmlDocument : Document
                         {
                             while (c <= 0x20)
                             {
-                                c = chars[++index];
+                                c = ReadXmlByte(chars, ++index);
                             }
 
-                            if (c == '>' || (c == '/' && chars[index + 1] == '>'))
+                            if (c == '>' || (c == '/' && index + 1 < chars.Length && chars[index + 1] == '>'))
                             {
                                 break;
                             }
 
                             var attrIndex = index;
-                            while (c > 0x20 && c != '=' && c != '>')
+                            while (c > 0x20 && c != '=' && c != '>' && c != '/' && c != '<')
                             {
-                                c = chars[++index];
+                                c = ReadXmlByte(chars, ++index);
+                            }
+
+                            if (index == attrIndex)
+                            {
+                                throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
                             }
 
                             AllocToken(DToken.Make(DTokenVariant.String,
@@ -351,53 +353,52 @@ public sealed class XmlDocument : Document
 
                             while (c <= 0x20)
                             {
-                                c = chars[++index];
+                                c = ReadXmlByte(chars, ++index);
                             }
 
-                            if (c == '=')
-                            {
-                                c = chars[++index];
-
-                                while (c <= 0x20)
-                                {
-                                    c = chars[++index];
-                                }
-
-                                if (c == '"' || c == '\'')
-                                {
-                                    var type = c;
-                                    var escaped = 0;
-
-                                    c = chars[++index];
-                                    var valueIndex = index;
-                                    while (c != type)
-                                    {
-                                        if (c == '&')
-                                        {
-                                            escaped |= 1;
-                                        }
-                                        else if (c == ';')
-                                        {
-                                            escaped |= 2;
-                                        }
-
-                                        c = chars[++index];
-                                    }
-
-                                    var kind = type == '"' ? DTokenVariant.String : DTokenVariant.StringSingleQuote;
-                                    AllocToken(DToken.Make(kind,
-                                        DToken.EncodeLengthOffsetPayload(
-                                            DToken.EncodeStringParamPayload(index - valueIndex, escaped == 3),
-                                            valueIndex)));
-                                    c = chars[++index];
-                                }
-
-                                IncToken(elementId);
-                            }
-                            else
+                            if (c != '=')
                             {
                                 throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
                             }
+
+                            c = ReadXmlByte(chars, ++index);
+                            while (c <= 0x20)
+                            {
+                                c = ReadXmlByte(chars, ++index);
+                            }
+
+                            // Every attribute needs a quoted value before its map entry is counted.
+                            if (c != '"' && c != '\'')
+                            {
+                                throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
+                            }
+
+                            var type = c;
+                            var escaped = 0;
+
+                            c = ReadXmlByte(chars, ++index);
+                            var valueIndex = index;
+                            while (c != type)
+                            {
+                                if (c == '&')
+                                {
+                                    escaped |= 1;
+                                }
+                                else if (c == ';')
+                                {
+                                    escaped |= 2;
+                                }
+
+                                c = ReadXmlByte(chars, ++index);
+                            }
+
+                            var kind = type == '"' ? DTokenVariant.String : DTokenVariant.StringSingleQuote;
+                            AllocToken(DToken.Make(kind,
+                                DToken.EncodeLengthOffsetPayload(
+                                    DToken.EncodeStringParamPayload(index - valueIndex, escaped == 3),
+                                    valueIndex)));
+                            c = ReadXmlByte(chars, ++index);
+                            IncToken(elementId);
                         }
 
                         AllocToken(elementToken);
@@ -516,58 +517,86 @@ public sealed class XmlDocument : Document
                     break;
                 case '?':
                     {
-                        c = chars[++index];
-
-                        if (instructionParentId == 0)
-                        {
-                            instructionParentId = AllocToken(DToken.MakeArray(0));
-
-                            IncToken(parentId);
-                            if (latestId != 0)
-                            {
-                                LinkToken(latestId, instructionParentId);
-                            }
-
-                            latestId = instructionParentId;
-                        }
-
+                        c = ReadXmlByte(chars, ++index);
                         var tokenIndex = index;
-                        while (c > 0x20)
+                        while (c > 0x20 && c != '?' && c != '>' && c != '<')
                         {
-                            c = chars[++index];
+                            c = ReadXmlByte(chars, ++index);
                         }
 
-                        IncToken(instructionParentId);
-                        var instructionId = AllocToken(DToken.MakeMap(1));
-
-                        if (instructionLatestId != 0)
+                        if (index == tokenIndex)
                         {
-                            LinkToken(instructionLatestId, instructionId);
+                            throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
                         }
 
-                        instructionLatestId = instructionId;
+                        var isDeclaration = chars.Slice(tokenIndex, index - tokenIndex).SequenceEqual("xml"u8);
 
+                        // Each instruction belongs to its current parent and position in the child list.
+                        var instructionParentId = AllocToken(DToken.MakeArray(1));
+                        IncToken(parentId);
+                        if (latestId != 0)
+                        {
+                            LinkToken(latestId, instructionParentId);
+                        }
+
+                        latestId = instructionParentId;
+                        AllocToken(DToken.MakeMap(1));
                         AllocToken(DToken.Make(DTokenVariant.String,
                             DToken.EncodeLengthOffsetPayload(index - tokenIndex, tokenIndex)));
                         var elementId = AllocToken(DToken.MakeMap(0));
 
-                        //parse attributes
+                        if (!isDeclaration)
+                        {
+                            // Processing-instruction data is opaque text, not XML attributes.
+                            var terminator = chars.Slice(index).IndexOf("?>"u8);
+                            if (terminator < 0 || (c > 0x20 && terminator != 0))
+                            {
+                                throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
+                            }
+
+                            var endIndex = index + terminator;
+                            while (index < endIndex && chars[index] <= 0x20)
+                            {
+                                index++;
+                            }
+
+                            if (index < endIndex)
+                            {
+                                AllocToken(DToken.Make(DTokenVariant.String,
+                                    DToken.EncodeLengthOffsetPayload(endIndex - index, index)));
+                                AllocToken(DToken.Make(DTokenVariant.Null, 0));
+                                IncToken(elementId);
+                            }
+
+                            index = endIndex + 2;
+                            textIndex = index;
+                            textEscaped = 0;
+                            hasText = false;
+                            break;
+                        }
+
+                        // XML declaration values require quotes and a complete ?> terminator.
                         for (;;)
                         {
                             while (c <= 0x20)
                             {
-                                c = chars[++index];
+                                c = ReadXmlByte(chars, ++index);
                             }
 
-                            if (c == '?' && chars[index + 1] == '>')
+                            if (c == '?' && index + 1 < chars.Length && chars[index + 1] == '>')
                             {
                                 break;
                             }
 
                             var attrIndex = index;
-                            while (c > 0x20 && c != '=' && c != '>')
+                            while (c > 0x20 && c != '=' && c != '>' && c != '?' && c != '<')
                             {
-                                c = chars[++index];
+                                c = ReadXmlByte(chars, ++index);
+                            }
+
+                            if (index == attrIndex)
+                            {
+                                throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
                             }
 
                             AllocToken(DToken.Make(DTokenVariant.String,
@@ -575,42 +604,38 @@ public sealed class XmlDocument : Document
 
                             while (c <= 0x20)
                             {
-                                c = chars[++index];
+                                c = ReadXmlByte(chars, ++index);
                             }
 
-                            if (c == '=')
+                            if (c != '=')
                             {
-                                c = chars[++index];
-
-                                while (c <= 0x20)
-                                {
-                                    c = chars[++index];
-                                }
-
-                                if (c == '"' || c == '\'')
-                                {
-                                    var type = c;
-
-                                    c = chars[++index];
-                                    var valueIndex = index;
-                                    while (c != type)
-                                    {
-                                        c = chars[++index];
-                                    }
-
-                                    AllocToken(DToken.Make(
-                                        type == '"' ? DTokenVariant.String : DTokenVariant.StringSingleQuote,
-                                        DToken.EncodeLengthOffsetPayload(index - valueIndex, valueIndex)));
-                                    c = chars[++index];
-                                }
-
-                                IncToken(elementId);
+                                throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
                             }
-                            else
+
+                            c = ReadXmlByte(chars, ++index);
+                            while (c <= 0x20)
                             {
-                                AllocToken(DToken.Make(DTokenVariant.Null, 0));
-                                IncToken(elementId);
+                                c = ReadXmlByte(chars, ++index);
                             }
+
+                            if (c != '"' && c != '\'')
+                            {
+                                throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, index);
+                            }
+
+                            var type = c;
+                            c = ReadXmlByte(chars, ++index);
+                            var valueIndex = index;
+                            while (c != type)
+                            {
+                                c = ReadXmlByte(chars, ++index);
+                            }
+
+                            AllocToken(DToken.Make(
+                                type == '"' ? DTokenVariant.String : DTokenVariant.StringSingleQuote,
+                                DToken.EncodeLengthOffsetPayload(index - valueIndex, valueIndex)));
+                            c = ReadXmlByte(chars, ++index);
+                            IncToken(elementId);
                         }
 
                         index += 2;
@@ -621,6 +646,16 @@ public sealed class XmlDocument : Document
                     break;
             }
         }
+    }
+
+    private byte ReadXmlByte(ReadOnlySpan<byte> chars, int index)
+    {
+        if (index >= chars.Length)
+        {
+            throw new ParseException(this, ParseException.ErrorCode.InvalidFormat, chars.Length);
+        }
+
+        return chars[index];
     }
 
     private static void WriteComments(Utf8TextWriter writer, in DataReader reader, uint tokenId,
