@@ -274,9 +274,15 @@ public sealed class TomlDocument : Document
             var writer = cache.Value;
             var reader = new DataReader(element);
 
-            writer.Reset(stream, reader.Settings, options.TextWriteOptions);
-            Write(writer, reader, reader.RootId, options);
-            writer.Dispose();
+            try
+            {
+                writer.Reset(stream, reader.Settings, options.TextWriteOptions);
+                Write(writer, reader, reader.RootId, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 
@@ -288,9 +294,15 @@ public sealed class TomlDocument : Document
             var writer = cache.Value;
             var reader = new DataReader(element);
 
-            writer.Reset(bufferWriter, reader.Settings, options.TextWriteOptions);
-            Write(writer, reader, reader.RootId, options);
-            writer.Dispose();
+            try
+            {
+                writer.Reset(bufferWriter, reader.Settings, options.TextWriteOptions);
+                Write(writer, reader, reader.RootId, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 

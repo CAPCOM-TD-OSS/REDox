@@ -235,9 +235,15 @@ public sealed class Json5Document : Document
         {
             var writer = cache.Value;
             var reader = new DataReader(element);
-            writer.Reset(writeStream, reader.Settings, options.TextWriteOptions);
-            Write(writer, reader, options);
-            writer.Dispose();
+            try
+            {
+                writer.Reset(writeStream, reader.Settings, options.TextWriteOptions);
+                Write(writer, reader, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 
@@ -250,9 +256,15 @@ public sealed class Json5Document : Document
         {
             var writer = cache.Value;
             var reader = new DataReader(element);
-            writer.Reset(bufferWriter, reader.Settings, options.TextWriteOptions);
-            Write(writer, reader, options);
-            writer.Dispose();
+            try
+            {
+                writer.Reset(bufferWriter, reader.Settings, options.TextWriteOptions);
+                Write(writer, reader, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 

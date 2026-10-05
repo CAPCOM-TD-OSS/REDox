@@ -208,9 +208,15 @@ public sealed class CborDocument : Document
         {
             var writer = cache.Value;
             var reader = new DataReader(element);
-            writer.Reset(writeStream, reader.Settings, options);
-            Write(writer, reader, options);
-            writer.Dispose();
+            try
+            {
+                writer.Reset(writeStream, reader.Settings, options);
+                Write(writer, reader, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 
@@ -223,9 +229,15 @@ public sealed class CborDocument : Document
         {
             var writer = cache.Value;
             var reader = new DataReader(element);
-            writer.Reset(bufferWriter, reader.Settings, options);
-            Write(writer, reader, options);
-            writer.Dispose();
+            try
+            {
+                writer.Reset(bufferWriter, reader.Settings, options);
+                Write(writer, reader, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 

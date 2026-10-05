@@ -274,18 +274,23 @@ public sealed class JsonDocument : Document
             var writer = cache.Value;
             var reader = new DataReader(element);
 
-            writer.Reset(writeStream, reader.Settings, options);
-
-            if (options.UseNewlineDelimitedFormat)
+            try
             {
-                WriteNDJson(writer, reader);
-            }
-            else
-            {
-                WriteJson(writer, reader);
-            }
+                writer.Reset(writeStream, reader.Settings, options);
 
-            writer.Dispose();
+                if (options.UseNewlineDelimitedFormat)
+                {
+                    WriteNDJson(writer, reader);
+                }
+                else
+                {
+                    WriteJson(writer, reader);
+                }
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 
@@ -301,18 +306,23 @@ public sealed class JsonDocument : Document
             var writer = cache.Value;
             var reader = new DataReader(element);
 
-            writer.Reset(bufferWriter, reader.Settings, options);
-
-            if (options.UseNewlineDelimitedFormat)
+            try
             {
-                WriteNDJson(writer, reader);
-            }
-            else
-            {
-                WriteJson(writer, reader);
-            }
+                writer.Reset(bufferWriter, reader.Settings, options);
 
-            writer.Dispose();
+                if (options.UseNewlineDelimitedFormat)
+                {
+                    WriteNDJson(writer, reader);
+                }
+                else
+                {
+                    WriteJson(writer, reader);
+                }
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 

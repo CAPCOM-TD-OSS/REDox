@@ -206,10 +206,16 @@ public sealed class MessagePackDocument : Document
             var writer = cache.Value;
             var reader = new DataReader(element);
 
-            writer.Reset(writeStream, reader.Settings, options);
-            var rootId = reader.RootId;
-            WriteValue(writer, reader, reader.GetToken(rootId), rootId);
-            writer.Dispose();
+            try
+            {
+                writer.Reset(writeStream, reader.Settings, options);
+                var rootId = reader.RootId;
+                WriteValue(writer, reader, reader.GetToken(rootId), rootId);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 
@@ -223,10 +229,16 @@ public sealed class MessagePackDocument : Document
             var writer = cache.Value;
             var reader = new DataReader(element);
 
-            writer.Reset(bufferWriter, reader.Settings, options);
-            var rootId = reader.RootId;
-            WriteValue(writer, reader, reader.GetToken(rootId), rootId);
-            writer.Dispose();
+            try
+            {
+                writer.Reset(bufferWriter, reader.Settings, options);
+                var rootId = reader.RootId;
+                WriteValue(writer, reader, reader.GetToken(rootId), rootId);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 

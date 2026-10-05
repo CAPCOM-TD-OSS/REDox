@@ -223,9 +223,15 @@ public sealed class DoxDocument : Document
         {
             var writer = cache.Value;
             var reader = new DataReader(element);
-            writer.ResetInternal(reader.Settings.DefaultBufferSize, stream, null);
-            Write(writer, in reader, options);
-            writer.Flush();
+            try
+            {
+                writer.ResetInternal(reader.Settings.DefaultBufferSize, stream, null);
+                Write(writer, in reader, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 
@@ -238,9 +244,15 @@ public sealed class DoxDocument : Document
         {
             var writer = cache.Value;
             var reader = new DataReader(element);
-            writer.ResetInternal(reader.Settings.DefaultBufferSize, null, bufferWriter);
-            Write(writer, in reader, options);
-            writer.Flush();
+            try
+            {
+                writer.ResetInternal(reader.Settings.DefaultBufferSize, null, bufferWriter);
+                Write(writer, in reader, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 

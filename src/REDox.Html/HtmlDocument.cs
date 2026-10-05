@@ -224,10 +224,15 @@ public sealed class HtmlDocument : Document
             var writer = cache.Value;
             var reader = new DataReader(element);
 
-            writer.Reset(stream, reader.Settings);
-            Write(writer, reader, reader.RootId, options);
-
-            writer.Dispose();
+            try
+            {
+                writer.Reset(stream, reader.Settings);
+                Write(writer, reader, reader.RootId, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 
@@ -239,10 +244,15 @@ public sealed class HtmlDocument : Document
             var writer = cache.Value;
             var reader = new DataReader(element);
 
-            writer.Reset(bufferWriter, reader.Settings);
-            Write(writer, reader, reader.RootId, options);
-
-            writer.Dispose();
+            try
+            {
+                writer.Reset(bufferWriter, reader.Settings);
+                Write(writer, reader, reader.RootId, options);
+            }
+            finally
+            {
+                writer.Dispose();
+            }
         }
     }
 
