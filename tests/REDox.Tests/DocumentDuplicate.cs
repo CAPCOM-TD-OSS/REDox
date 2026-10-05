@@ -96,4 +96,39 @@ public class DocumentDuplicate
 
         Assert.Equal(json, dup.RootElement.ToString());
     }
+
+    [Fact]
+    public void DuplicateDoesNotShareParentTable()
+    {
+        using var doc = JsonDocument.Parse("""{"A":{"B":[1,2,{"C":3}]},"D":[4,5]}""");
+
+        DValue OriginalC() => doc.RootElement.AsObject()["A"].AsObject()["B"].AsArray()[2].AsObject()["C"];
+
+        Assert.Equal("$.A.B[2].C", OriginalC().GetPath());
+
+        var dup = doc.Duplicate();
+
+        DValue DupC() => dup.RootElement.AsObject()["A"].AsObject()["B"].AsArray()[2].AsObject()["C"];
+
+        dup.RootElement.AsObject()["D"].AsArray().Add(6);
+        dup.RootElement.AsObject().Add("E", "x");
+
+        Assert.Equal("$.A.B[2].C", DupC().GetPath());
+        Assert.Equal("$.D[2]", dup.RootElement.AsObject()["D"].AsArray()[2].GetPath());
+        Assert.Equal("$.A.B[2].C", OriginalC().GetPath());
+        Assert.Equal("$.A.B[2]", OriginalC().Parent!.Value.GetPath());
+
+        doc.Dispose();
+
+        for (var i = 0; i < 16; i++)
+        {
+            using var other = JsonDocument.Parse("""[[[[0]]],[[[1]]],[[[2]]]]""");
+            _ = other.RootElement.AsArray()[2].AsArray()[0].GetPath();
+        }
+
+        Assert.Equal("$.A.B[2].C", DupC().GetPath());
+        Assert.Equal("$.A.B[2]", DupC().Parent!.Value.GetPath());
+
+        dup.Dispose();
+    }
 }

@@ -96,6 +96,8 @@ public abstract partial class Document : IDisposable
         var doc = (T)MemberwiseClone();
         doc._tokens = _tokens.AsSpan(0, _tokenPt).ToArray();
         doc.IsPooled = false;
+        doc._parentTable = null;
+        doc._parentVersion = 0;
 
         var count = _extendCount;
 
