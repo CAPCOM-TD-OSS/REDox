@@ -927,7 +927,8 @@ public sealed class CborDocument : Document
                         return new ParseException(this, ParseException.ErrorCode.OutOfBounds, index);
                     }
 
-                    tag = (CborTag)DecodeNumber(cbor, offset, param);
+                    var rawTag = (ulong)DecodeNumber(cbor, offset, param);
+                    tag = rawTag <= int.MaxValue ? (CborTag)rawTag : CborTag.Invalid;
                     if (options.PreserveTag && !IsKnownTag(tag))
                     {
                         AllocToken(DToken.Make(DTokenVariant.TriviaTag,
@@ -1336,7 +1337,7 @@ public sealed class CborDocument : Document
                 dVal[i / 4] |= tbl[tbl.Length - i - 1] << ((i & 3) * 8);
             }
 
-            if ((CborTag)value.val == CborTag.NegativeBigNum)
+            if (value.val == (long)CborTag.NegativeBigNum)
             {
                 result = new decimal(dVal[0] + 1, dVal[1], dVal[2], true, dScale);
                 return true;
