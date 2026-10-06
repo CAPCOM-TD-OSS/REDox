@@ -393,6 +393,13 @@ sealed class JsonTextEncoder : ITextEncoder<JsonTextEncoder>
                         {
                             if (char.IsSurrogate(c))
                             {
+                                if (!char.IsHighSurrogate(c) || i + 1 >= chars.Length ||
+                                    !char.IsLowSurrogate(chars[i + 1]))
+                                {
+                                    pt += WriteEscapedChar(dest.Slice(pt), '\ufffd', _upperEscape);
+                                    continue;
+                                }
+
                                 var ch = 0x10000 + (c - 0xD800) * 0x400 + (chars[++i] - 0xDC00);
 
                                 dest[pt] = (byte)((ch >> 18) | 0xf0);
