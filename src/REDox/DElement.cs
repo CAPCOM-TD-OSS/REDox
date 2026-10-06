@@ -877,6 +877,47 @@ public readonly partial struct DElement : IEquatable<DElement>
         return Document.GetValueCount(Id);
     }
 
+    /// <summary>
+    /// Gets the array element at the specified index.
+    /// </summary>
+    /// <remarks>
+    /// For parsed arrays this is an O(n) operation. Use <see cref="EnumerateArray"/> to iterate all elements.
+    /// </remarks>
+    public DElement this[int index]
+    {
+        get
+        {
+            var length = GetArrayLength();
+
+            if ((uint)index >= (uint)length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index));
+            }
+
+            var token = Token;
+
+            if (token.IsExtended)
+            {
+                var node = (DArray)Document.GetExtendContainer(token);
+                return new DElement(Document, node.GetValueInternal(index));
+            }
+
+            if (token.LinkId - Id - 1 == (uint)length)
+            {
+                return new DElement(Document, Id + 1 + (uint)index);
+            }
+
+            var enumerator = new Document.ValueEnumerator(Document, Id);
+
+            for (var i = 0; i <= index; i++)
+            {
+                enumerator.MoveNext();
+            }
+
+            return new DElement(Document, enumerator.Current);
+        }
+    }
+
     public int GetArrayLength()
     {
         ThrowIfInvalid();
