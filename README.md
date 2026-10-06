@@ -542,12 +542,6 @@ The RE:Dox library packages do not bundle third-party code. The following third-
 | [json5/json5-tests](https://github.com/json5/json5-tests) | JSON5 conformance tests | MIT |
 | [toml-lang/toml-test](https://github.com/toml-lang/toml-test) | TOML conformance tests | MIT |
 
-## Release notes
-
-See [docs/releases](docs/releases) for the changes in each version.
-
-* [v1.0.1](docs/releases/v1.0.1.md)
-
 ## License
 
 RE:Dox is released under the [Apache License 2.0](LICENSE).
