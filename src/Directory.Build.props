@@ -14,7 +14,7 @@
         <PackageTags>CAPCOM</PackageTags>
         <Copyright>© CAPCOM 2026</Copyright>
         <PackageIcon>rd_logo_white.png</PackageIcon>
-        <VersionPrefix>1.0.0</VersionPrefix>
+        <VersionPrefix>1.0.1</VersionPrefix>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
         <PackageOutputPath>$(SolutionDir)package_out\$(Configuration)</PackageOutputPath>
