@@ -958,30 +958,6 @@ public class Utf8HelperTests
                 false));
     }
 
-    // ============================================================
-    // Utf8CharsToUtf32Char
-    // ============================================================
-
-    [Theory]
-    [InlineData("A", 0x41, 1)]
-    [InlineData("é", 0xE9, 2)]
-    [InlineData("あ", 0x3042, 3)]
-    [InlineData("😀", 0x1F600, 4)]
-    public void Utf8CharsToUtf32Char_Valid(
-        string text,
-        int expectedCodePoint,
-        int expectedConsumed)
-    {
-        var bytes = Encoding.UTF8.GetBytes(text);
-
-        var consumed =
-            Utf8Helper.Utf8CharsToUtf32Char(
-                bytes,
-                out var codePoint);
-
-        Assert.Equal(expectedConsumed, consumed);
-        Assert.Equal(expectedCodePoint, codePoint);
-    }
 
     // ============================================================
     // Compare

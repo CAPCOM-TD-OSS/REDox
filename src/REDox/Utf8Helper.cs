@@ -1353,46 +1353,6 @@ static class Utf8Helper
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int Utf8CharsToUtf32Char(ReadOnlySpan<byte> utf8Chars, out int utf32Char)
-    {
-        var i = 0;
-        var c = utf8Chars[i++];
-
-        if (c <= 0x7f)
-        {
-            utf32Char = c & 0x7f;
-        }
-        else
-        {
-            if (0xc0 <= c && c <= 0xdf)
-            {
-                var c2 = utf8Chars[i++];
-                utf32Char = ((c & 0x1f) << 6) | (c2 & 0x3f);
-            }
-            else
-            {
-                if (0xe0 <= c && c <= 0xef)
-                {
-                    var c2 = utf8Chars[i++];
-                    var c3 = utf8Chars[i++];
-
-                    utf32Char = ((c & 0x0f) << 12) | ((c2 & 0x3f) << 6) | (c3 & 0x3f);
-                }
-                else
-                {
-                    var c2 = utf8Chars[i++];
-                    var c3 = utf8Chars[i++];
-                    var c4 = utf8Chars[i++];
-
-                    utf32Char = ((c & 0x7) << 18) | ((c2 & 0x3f) << 12) | ((c3 & 0x3f) << 6) | (c4 & 0x3f);
-                }
-            }
-        }
-
-        return i;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int Compare(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b, bool ignoreCase)
     {
         if (a.Length == b.Length)
