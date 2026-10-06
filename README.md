@@ -474,6 +474,19 @@ var dcjSettings = new DataContractJsonSerializerSettings(
 
 ---
 
+## Security
+
+### Trusted input only for DOX
+
+The DOX format handled by `DoxDocument` is a binary layout that mirrors the in-memory token array. It is designed for speed and is not intended to be a defensive parser for hostile data. Accept DOX data **only from trusted sources**. Do not deserialize DOX received from untrusted or unauthenticated origins (network clients, user uploads, etc.). Use a text format such as JSON for untrusted input.
+
+### Thread safety
+
+* **`DElement`**: The API is read-only, so a `DElement` can be referenced from multiple threads concurrently.
+* **`DValue` / `DObject` / `DMap` / `DArray`**: These must **not** be used from multiple threads at the same time. Their internal state can change even for operations that look read-only, such as getting a value or calling `GetPath`. Synchronize access externally, or give each thread its own instance (for example, via deep clone).
+
+---
+
 ## Requirements
 
 * .NET 10 or later.
