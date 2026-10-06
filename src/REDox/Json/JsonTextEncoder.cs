@@ -250,7 +250,15 @@ sealed class JsonTextEncoder : ITextEncoder<JsonTextEncoder>
         }
 
         var pt = 0;
-        var bytes = Utf8Helper.Utf8CharsToUtf32Char(utf8Bytes.Slice(i), out var utf32);
+        var status = Rune.DecodeFromUtf8(utf8Bytes.Slice(i), out var rune, out var bytes);
+
+        if (status != OperationStatus.Done)
+        {
+            i += bytes - 1;
+            return WriteEscapedChar(dest, '\ufffd', _upperEscape);
+        }
+
+        var utf32 = rune.Value;
 
         if (IsEscapedCodePoint(utf32))
         {
