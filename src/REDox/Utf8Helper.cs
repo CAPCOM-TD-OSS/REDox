@@ -1471,6 +1471,11 @@ static class Utf8Helper
             {
                 if (0xc0 <= c && c <= 0xdf)
                 {
+                    if (i1 >= str1.Length)
+                    {
+                        return false;
+                    }
+
                     var c2 = str1[i1++];
                     d = ((c & 0x1f) << 6) | (c2 & 0x3f);
                 }
@@ -1506,6 +1511,11 @@ static class Utf8Helper
 
             if (char.IsSurrogate((char)s))
             {
+                if (!char.IsHighSurrogate((char)s) || i2 >= str2.Length || !char.IsLowSurrogate(str2[i2]))
+                {
+                    return false;
+                }
+
                 var ch = 0x10000 + ((char)s - 0xD800) * 0x400 + (str2[i2++] - 0xDC00);
 
                 s = ch;

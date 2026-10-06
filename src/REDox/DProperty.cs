@@ -62,6 +62,11 @@ public readonly struct DProperty : IEquatable<DProperty>
     {
         ThrowIfInvalid();
 
+        if (_document.GetToken(_nameId).IsExtended)
+        {
+            return Utf8Helper.Equals(utf8Text, _document.GetStringValue(_nameId));
+        }
+
         return _document.GetUtf8BytesValue(_nameId).SequenceEqual(utf8Text);
     }
 
@@ -69,14 +74,24 @@ public readonly struct DProperty : IEquatable<DProperty>
     {
         ThrowIfInvalid();
 
-        return _document.GetStringValue(_nameId).AsSpan().SequenceEqual(text);
+        if (_document.GetToken(_nameId).IsExtended)
+        {
+            return _document.GetStringValue(_nameId).AsSpan().SequenceEqual(text);
+        }
+
+        return Utf8Helper.Equals(_document.GetUtf8BytesValue(_nameId), text);
     }
 
     public bool NameEquals(string text)
     {
         ThrowIfInvalid();
 
-        return _document.GetStringValue(_nameId) == text;
+        if (_document.GetToken(_nameId).IsExtended)
+        {
+            return _document.GetStringValue(_nameId) == text;
+        }
+
+        return text != null && Utf8Helper.Equals(_document.GetUtf8BytesValue(_nameId), text.AsSpan());
     }
 
     public DElement Value
