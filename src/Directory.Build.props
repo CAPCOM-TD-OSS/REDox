@@ -15,6 +15,7 @@
         <Copyright>© CAPCOM 2026</Copyright>
         <PackageIcon>rd_logo_white.png</PackageIcon>
         <VersionPrefix>1.0.1</VersionPrefix>
+        <PackageReleaseNotes>https://github.com/CAPCOM-TD-OSS/redox/blob/v$(VersionPrefix)/docs/releases/v$(VersionPrefix).md</PackageReleaseNotes>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
         <PackageOutputPath>$(SolutionDir)package_out\$(Configuration)</PackageOutputPath>
