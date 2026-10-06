@@ -607,7 +607,7 @@ public sealed class MessagePackDocument : Document
                                     goto parseError;
                                 }
 
-                                tokenId = AllocExtensionToken(bytes[index + 4], index + 5, (int)byteCount,
+                                tokenId = AllocExtensionToken(bytes[index + 4], index + 5, Math.Min((int)byteCount, MaxLength),
                                     options.PreserveExtension);
                                 index += (int)byteCount + 5;
                             }
@@ -1133,10 +1133,22 @@ public sealed class MessagePackDocument : Document
 
         if (param.length == MaxLength)
         {
-            param.length = BinaryPrimitives.ReadInt32BigEndian(_source.Span.Slice(param.offset - 4));
+            param.length = ReadLargeLength(param.offset);
         }
 
         return _source.Span.Slice(param.offset, param.length);
+    }
+
+    private int ReadLargeLength(int offset)
+    {
+        var source = _source.Span;
+
+        if (source[offset - 5] is (byte)MessagePackCode.Bin32 or (byte)MessagePackCode.Str32)
+        {
+            return BinaryPrimitives.ReadInt32BigEndian(source.Slice(offset - 4));
+        }
+
+        return BinaryPrimitives.ReadInt32BigEndian(source.Slice(offset - 5));
     }
 
     protected override DateTimeOffset DecodeDateTimeOffset(DToken token)
