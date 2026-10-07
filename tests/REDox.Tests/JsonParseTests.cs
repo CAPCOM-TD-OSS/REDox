@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using Xunit.Sdk;
 
@@ -184,6 +185,118 @@ public sealed class JsonParseTests
         Assert.Contains("InvalidNumberValue", error.Message);
         Assert.Contains("...", error.Message);
         Assert.DoesNotContain(new string('0', 256), error.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(15)]
+    [InlineData(16)]
+    [InlineData(17)]
+    [InlineData(31)]
+    [InlineData(32)]
+    [InlineData(33)]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(65)]
+    [InlineData(256)]
+    [InlineData(4096)]
+    public void StrictStringValidation_ShouldHandleSearchBoundaries(int length)
+    {
+        var prefix = new string('a', length);
+        var options = new Json.JsonDocumentOptions { EnableValueValidation = true };
+
+        foreach (var content in new[]
+                 {
+                     prefix,
+                     prefix + "日本語é",
+                     prefix + "\\\"\\\\\\/\\b\\f\\n\\r\\t\\u0000\\u00aF\\uABCD",
+                     prefix + "\\n" + prefix + "\\u0041" + prefix
+                 })
+        {
+            var json = "{\"" + content + "\":\"" + content + "\"}";
+            using var source = JsonDocument.Parse(json);
+            var expected = source.RootElement.EnumerateObject().Single();
+            using var doc = Json.JsonDocument.Parse(json, Settings, options);
+
+            Assert.Equal(expected.Value.GetString(), doc.RootElement.GetProperty(expected.Name).GetString());
+            Assert.Empty(doc.GetValueValidationErrors());
+            Assert.True(Json.JsonDocument.TryParse(Encoding.UTF8.GetBytes(json), out var parsed, Settings, options));
+            parsed?.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(15)]
+    [InlineData(16)]
+    [InlineData(31)]
+    [InlineData(32)]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(256)]
+    [InlineData(4096)]
+    public void StrictStringValidation_ShouldPreserveErrorPositions(int length)
+    {
+        var prefix = new string('a', length) + "é\\n\\u0041";
+        var invalid = Enumerable.Range(0, 32)
+            .Select(c => (Text: ((char)c).ToString(), Error: "UnescapedStringValue"))
+            .Concat(new[] { "\\x", "\\u", "\\u0", "\\u00", "\\u000", "\\u00x0", "\\u000g" }
+                .Select(text => (Text: text, Error: "InvalidEscapeSequence")));
+
+        foreach (var (text, errorCode) in invalid)
+        {
+            foreach (var json in new[] { "[\"" + prefix + text + "\"]", "{\"" + prefix + text + "\":0}" })
+            {
+                using var doc = Json.JsonDocument.Parse(json, Settings);
+                var error = Assert.Single(doc.GetValueValidationErrors());
+
+                Assert.Contains(errorCode, error.Message);
+                Assert.Equal(2 + Encoding.UTF8.GetByteCount(prefix), error.BytePosition);
+                Assert.Equal(1, error.LineNumber);
+                Assert.Equal(error.BytePosition, error.BytePositionInLine);
+
+                var options = new Json.JsonDocumentOptions { EnableValueValidation = true };
+                var strictError = Assert.ThrowsAny<DocumentParseException>(() =>
+                    Json.JsonDocument.Parse(json, Settings, options));
+
+                Assert.Equal(error.Message, strictError.Message);
+                Assert.False(Json.JsonDocument.TryParse(Encoding.UTF8.GetBytes(json), out var parsed, Settings, options));
+                Assert.Null(parsed);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("1.e2", "InvalidNumberValue")]
+    [InlineData("1.E-2", "InvalidNumberValue")]
+    [InlineData("1.2.3", "InvalidNumberValue")]
+    [InlineData("1e2.3", "InvalidNumberValue")]
+    [InlineData("1.", "InvalidEndOfNumber")]
+    [InlineData(".1", "InvalidStartOfNumber")]
+    [InlineData("-.1", "InvalidStartOfNumber")]
+    [InlineData("+1.0", "InvalidStartOfNumber")]
+    [InlineData("NaN", "NamedFloatingPointLiteral")]
+    [InlineData("Infinity", "NamedFloatingPointLiteral")]
+    public void StrictFloatValidation_ShouldPreserveErrors(string number, string errorCode)
+    {
+        using var doc = Json.JsonDocument.Parse("[" + number + "]", Settings);
+        var error = Assert.Single(doc.GetValueValidationErrors());
+
+        Assert.Contains(errorCode, error.Message);
+        Assert.Equal(1, error.BytePosition);
+    }
+
+    [Fact]
+    public void StrictFloatValidation_ShouldAcceptValidNumbers()
+    {
+        foreach (var number in new[] { "-0", "1.25", "1e3", "1.0E-2", "1e309", "1.0e309", "1." + new string('0', 256) + "1e2" })
+        {
+            using var doc = Json.JsonDocument.Parse("[" + number + "]", Settings,
+                new Json.JsonDocumentOptions { EnableValueValidation = true });
+
+            Assert.Empty(doc.GetValueValidationErrors());
+        }
     }
 
     private static void ValidateRoundTrip(string filePath)

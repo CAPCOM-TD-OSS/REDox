@@ -18,6 +18,11 @@ namespace REDox.Json;
 public sealed class JsonDocument : Document
 {
     private static readonly byte[] s_unescapeTable;
+    private static readonly SearchValues<byte> s_stringValidationSearchValues = SearchValues.Create(
+        "\0\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\\"u8);
+
+    private static readonly SearchValues<byte> s_hexDigitSearchValues =
+        SearchValues.Create("0123456789abcdefABCDEF"u8);
 
     private byte[]? _rentedBuffer;
     private ReadOnlyMemory<byte> _source;
@@ -352,6 +357,91 @@ public sealed class JsonDocument : Document
     }
 
 
+    private static bool TryValidateFloat(ReadOnlySpan<byte> bytes, out ParseException.ErrorCode errorCode)
+    {
+        errorCode = ParseException.ErrorCode.InvalidNumberValue;
+
+        if (bytes.IsEmpty)
+        {
+            return false;
+        }
+
+        var i = 0;
+        var first = bytes[0];
+
+        if (first == '+' || first == '.' || (first == '-' && bytes.Length > 1 && bytes[1] == '.'))
+        {
+            errorCode = ParseException.ErrorCode.InvalidStartOfNumber;
+            return false;
+        }
+
+        if (first == '-')
+        {
+            i++;
+        }
+
+        var start = i;
+        while (i < bytes.Length && (uint)(bytes[i] - '0') <= 9)
+        {
+            i++;
+        }
+
+        if (i == start)
+        {
+            if (i < bytes.Length && char.IsAsciiLetter((char)bytes[i]))
+            {
+                errorCode = ParseException.ErrorCode.NamedFloatingPointLiteral;
+            }
+
+            return false;
+        }
+
+        if (i < bytes.Length && bytes[i] == '.')
+        {
+            i++;
+
+            if (i == bytes.Length)
+            {
+                errorCode = ParseException.ErrorCode.InvalidEndOfNumber;
+                return false;
+            }
+
+            start = i;
+            while (i < bytes.Length && (uint)(bytes[i] - '0') <= 9)
+            {
+                i++;
+            }
+
+            if (i == start)
+            {
+                return false;
+            }
+        }
+
+        if (i < bytes.Length && (bytes[i] | 0x20) == 'e')
+        {
+            i++;
+
+            if (i < bytes.Length && (bytes[i] == '+' || bytes[i] == '-'))
+            {
+                i++;
+            }
+
+            start = i;
+            while (i < bytes.Length && (uint)(bytes[i] - '0') <= 9)
+            {
+                i++;
+            }
+
+            if (i == start)
+            {
+                return false;
+            }
+        }
+
+        return i == bytes.Length;
+    }
+
     private ParseException? ValidateToken(DToken token)
     {
         switch (token.Kind)
@@ -378,6 +468,14 @@ public sealed class JsonDocument : Document
 
                     for (var i = 0; i < bytes.Length; i++)
                     {
+                        var next = bytes.Slice(i).IndexOfAny(s_stringValidationSearchValues);
+                        if (next < 0)
+                        {
+                            break;
+                        }
+
+                        i += next;
+
                         if (bytes[i] < 0x20)
                         {
                             return new ParseException(this, ParseException.ErrorCode.UnescapedStringValue,
@@ -396,16 +494,11 @@ public sealed class JsonDocument : Document
                                             bytes.Length - i);
                                     }
 
-                                    for (var j = i + 2; j < i + 6; j++)
+                                    if (bytes.Slice(i + 2, 4).ContainsAnyExcept(s_hexDigitSearchValues))
                                     {
-                                        if (!((bytes[j] >= '0' && bytes[j] <= '9') ||
-                                              (bytes[j] >= 'a' && bytes[j] <= 'f') ||
-                                              (bytes[j] >= 'A' && bytes[j] <= 'F')))
-                                        {
-                                            return new ParseException(this,
-                                                ParseException.ErrorCode.InvalidEscapeSequence,
-                                                param.offset + i, 6);
-                                        }
+                                        return new ParseException(this,
+                                            ParseException.ErrorCode.InvalidEscapeSequence,
+                                            param.offset + i, 6);
                                     }
 
                                     i += 5;
@@ -433,42 +526,9 @@ public sealed class JsonDocument : Document
                     var param = DToken.DecodeLengthOffsetPayload(token);
                     var bytes = _source.Span.Slice(param.offset, param.length);
 
-                    if (!Utf8Parser.TryParse(bytes, out double value, out var bytesConsumed) ||
-                        param.length != bytesConsumed)
+                    if (!TryValidateFloat(bytes, out var errorCode))
                     {
-                        return new ParseException(this, ParseException.ErrorCode.InvalidNumberValue, param.offset,
-                            param.length);
-                    }
-
-                    if (double.IsNaN(value) || double.IsInfinity(value))
-                    {
-                        if (!char.IsDigit((char)bytes[bytes.Length - 1]))
-                        {
-                            return new ParseException(this,
-                                ParseException.ErrorCode.NamedFloatingPointLiteral, param.offset,
-                                param.length);
-                        }
-                    }
-
-                    if (bytes[bytes.Length - 1] == '.')
-                    {
-                        return new ParseException(this, ParseException.ErrorCode.InvalidEndOfNumber,
-                            param.offset, param.length);
-                    }
-
-                    if (bytes[0] == '+' || bytes[0] == '.' || (bytes[0] == '-' && bytes[1] == '.'))
-                    {
-                        return new ParseException(this, ParseException.ErrorCode.InvalidStartOfNumber,
-                            param.offset, param.length);
-                    }
-
-                    for (var i = 0; i < bytes.Length - 1; i++)
-                    {
-                        if (bytes[i] == '.' && (bytes[i + 1] == 'e' || bytes[i + 1] == 'E'))
-                        {
-                            return new ParseException(this, ParseException.ErrorCode.InvalidNumberValue,
-                                param.offset, param.length);
-                        }
+                        return new ParseException(this, errorCode, param.offset, param.length);
                     }
                 }
                 break;
