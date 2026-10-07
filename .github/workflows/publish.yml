@@ -1,0 +1,114 @@
+name: Publish NuGet packages
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Push packages to GitHub Packages and nuget.org (unchecked: build + pack only)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-nuget
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  build-pack:
+    name: Build + Pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # tests read test suites from external/
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Verify tag matches VersionPrefix
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = (dotnet msbuild src/REDox/REDox.csproj -getProperty:VersionPrefix).Trim()
+          $tag = "${{ github.ref_name }}".Substring(1)
+          if ($tag -ne $version) {
+              throw "Tag v$tag does not match VersionPrefix $version in src/Directory.Build.props"
+          }
+
+      - run: dotnet restore REDox.slnx
+
+      - run: dotnet build REDox.slnx -c Release --no-restore -p:ContinuousIntegrationBuild=true
+
+      - run: dotnet test REDox.slnx -c Release --no-build
+
+      - run: dotnet pack REDox.slnx -c Release --no-build -o artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/*.*nupkg
+          if-no-files-found: error
+
+  publish-github:
+    name: Push to GitHub Packages
+    needs: build-pack
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - run: >
+          dotnet nuget push "artifacts/*.nupkg"
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --skip-duplicate
+          --no-symbols
+
+  publish-nugetorg:
+    name: Push to nuget.org
+    needs: build-pack
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    environment: nuget-org
+    permissions:
+      id-token: write # Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: NuGet login (OIDC -> temporary API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - run: >
+          dotnet nuget push "artifacts/*.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --skip-duplicate
