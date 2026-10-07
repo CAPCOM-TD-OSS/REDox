@@ -9,6 +9,10 @@ on:
         description: 'Push packages to GitHub Packages and nuget.org (unchecked: build + pack only)'
         type: boolean
         default: false
+      ignore_test_failures:
+        description: 'Continue to pack and publish even if tests fail'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -49,7 +53,17 @@ jobs:
 
       - run: dotnet build REDox.slnx -c Release --no-restore -p:ContinuousIntegrationBuild=true
 
-      - run: dotnet test REDox.slnx -c Release --no-build
+      - name: Test
+        id: test
+        continue-on-error: ${{ inputs.ignore_test_failures == true }}
+        run: dotnet test REDox.slnx -c Release --no-build
+
+      - name: Report ignored test failures
+        if: steps.test.outcome == 'failure'
+        run: |
+          echo "::warning title=Tests failed::Test failures were ignored because ignore_test_failures is enabled. See the Test step log for details."
+          echo "### :warning: Test failures were ignored" >> "$GITHUB_STEP_SUMMARY"
+          echo "Packages were built even though some tests failed (\`ignore_test_failures\` enabled). See the **Test** step log for the failed tests." >> "$GITHUB_STEP_SUMMARY"
 
       - run: dotnet pack REDox.slnx -c Release --no-build -o artifacts
 
