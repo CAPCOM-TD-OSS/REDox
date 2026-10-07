@@ -2,7 +2,7 @@
     <PropertyGroup>
         <RootNamespace>REDox.Toml</RootNamespace>
         <Title>$(AssemblyName)</Title>
-        <Description>CBOR parser/writer integration</Description>
+        <Description>TOML parser/writer with comment-aware token DOM integration</Description>
         <PackageId>CAPCOM.$(AssemblyName)</PackageId>
         <PackageTags>$(PackageTags);toml;parser;config</PackageTags>
         <Version>$(VersionPrefix)-preview</Version>
