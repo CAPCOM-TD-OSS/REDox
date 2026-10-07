@@ -1649,10 +1649,12 @@ sealed class BuiltInTypeConverter : DataConverterFactory
                     {
                         var timeSpan = TimeSpan.FromMinutes(offset.Value);
 
-                        if (timeSpan.Ticks != 0 || dateTime.Value.Kind == DateTimeKind.Local)
+                        if (dateTime.Value.Kind == DateTimeKind.Unspecified)
                         {
-                            dateTime = dateTime.Value.ToUniversalTime();
+                            return new DateTimeOffset(dateTime.Value, timeSpan);
                         }
+
+                        dateTime = dateTime.Value.ToUniversalTime();
 
                         return new DateTimeOffset(
                             new DateTime(dateTime.Value.Ticks + timeSpan.Ticks, DateTimeKind.Unspecified),

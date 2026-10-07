@@ -28,6 +28,7 @@ public class DataContractJsonSerializerSettings : SerializerSettings
     private static readonly ArrayConverter s_arrayConverter = new();
     private static readonly GenericCollectionConverter s_genericCollectionConverter = new();
     private static readonly CollectionConverter s_collectionConverter = new();
+    private static readonly DataContractDateTimeConverter s_dateTimeConverter = new();
 
     private static readonly DataConverter[] DefaultConverters = new DataConverter[]
     {
@@ -319,9 +320,9 @@ public class DataContractJsonSerializerSettings : SerializerSettings
                 : new BuiltInTypeConverter.DateTimeOffsetConverter(this, true);
         }
 
-        if (type == typeof(DateTime) && _dateTimeFormatConverter != null)
+        if (type == typeof(DateTime))
         {
-            return _dateTimeFormatConverter;
+            return _dateTimeFormatConverter != null ? _dateTimeFormatConverter : s_dateTimeConverter;
         }
 
         if (type == typeof(Half) ||

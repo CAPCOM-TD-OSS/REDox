@@ -1002,9 +1002,13 @@ public sealed class CborWriter : DataWriter, IDisposable, IAsyncDisposable
         {
             Span<byte> bytes = stackalloc byte[64];
 
-            if (Utf8Helper.TryFormatTimestamp(value.DateTime, value.Offset, null, null,
-                    DateFormatHandling.IsoDateFormat,
-                    bytes, out var bytesWritten))
+            var success = value.Offset == TimeSpan.Zero
+                ? Utf8Helper.TryFormatTimestamp(value.UtcDateTime, null, null, null,
+                    DateFormatHandling.IsoDateFormat, bytes, out var bytesWritten)
+                : Utf8Helper.TryFormatTimestamp(value.DateTime, value.Offset, null, null,
+                    DateFormatHandling.IsoDateFormat, bytes, out bytesWritten);
+
+            if (success)
             {
                 WriteTagToken(dw, CborTag.DateTimeString);
                 WriteCborToken(dw, CborMajorType.String, (ulong)bytesWritten);

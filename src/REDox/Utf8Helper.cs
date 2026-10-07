@@ -895,7 +895,7 @@ static class Utf8Helper
             Utf8Formatter.TryFormat(time, destination.Slice(pt), out var bytes);
             pt += bytes;
 
-            if (offset != null || timeSpan.Ticks != 0)
+            if (offset != null || timeSpan.Ticks != 0 || (dateTime.Kind == DateTimeKind.Unspecified && !specialTicks))
             {
                 var hour = Math.Abs(timeSpan.Hours);
                 var minute = Math.Abs(timeSpan.Minutes);
