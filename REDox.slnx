@@ -16,7 +16,7 @@
         <Project Path="tests/REDox.Serialization.DataContractJson.Tests/REDox.Serialization.DataContractJson.Tests.csproj" />
         <Project Path="tests/REDox.Serialization.NewtonsoftJson.Tests/REDox.Serialization.NewtonsoftJson.Tests.csproj" />
         <Project Path="tests/REDox.Serialization.SystemTextJson.Tests/REDox.Serialization.SystemTextJson.Tests.csproj" />
-        <Project Path="tests/REDox.Tests\REDox.Tests.csproj" />
+        <Project Path="tests/REDox.Tests/REDox.Tests.csproj" />
         <Project Path="tests/REDox.Toml.Tests/REDox.Toml.Tests.csproj" />
         <Project Path="tests/REDox.Xml.Tests/REDox.Xml.Tests.csproj" />
     </Folder>
