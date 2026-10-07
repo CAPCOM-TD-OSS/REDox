@@ -7,8 +7,11 @@ namespace REDox.Tests;
 
 public sealed class JsonTextEncoderUnpairedSurrogateTest
 {
-    private const string High = "\ud83d";
-    private const string Low = "\ude42";
+    // Unpaired surrogates are lost when xUnit serializes theory data, so pass placeholders and expand them at run time.
+    private const string High = "%H";
+    private const string Low = "%L";
+
+    private static string Expand(string s) => s.Replace(High, "\ud83d").Replace(Low, "\ude42");
 
     public static TheoryData<string, string, string> UnpairedSurrogateInputs()
     {
@@ -43,6 +46,7 @@ public sealed class JsonTextEncoderUnpairedSurrogateTest
     [MemberData(nameof(UnpairedSurrogateInputs))]
     public void EncodeUnpairedSurrogateMustNotSwallowFollowingCharacter(string policyKind, string input, string expectedTail)
     {
+        input = Expand(input);
         var encoder = JsonTextEncoder.Create(CreatePolicy(policyKind));
         var dest = new byte[input.Length * 12 + 2];
 
@@ -73,8 +77,8 @@ public sealed class JsonTextEncoderUnpairedSurrogateTest
         { High + High + Low, "\\ufffd🙂" },
         { Low + High + Low, "\\ufffd🙂" },
         { High + Low + "\"", "🙂\\\"" },
-        { "\ud800\udc00", "\U00010000" },
-        { "\udbff\udfff", "\U0010ffff" },
+        { "\U00010000", "\U00010000" },
+        { "\U0010ffff", "\U0010ffff" },
         { "asciiéあ", "ascii\\u00e9あ" },
     };
 
@@ -82,6 +86,7 @@ public sealed class JsonTextEncoderUnpairedSurrogateTest
     [MemberData(nameof(RangesInputs))]
     public void EncodeRangesMustPreserveValidPairsAndReplaceUnpairedSurrogates(string input, string expectedBody)
     {
+        input = Expand(input);
         var encoder = JsonTextEncoder.Create(CreatePolicy("Ranges"));
         var dest = new byte[input.Length * 12 + 2];
 
