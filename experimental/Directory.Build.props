@@ -5,6 +5,7 @@
         <Company>CAPCOM CO., LTD.</Company>
         <Copyright>© CAPCOM CO., LTD. ALL RIGHTS RESERVED.</Copyright>
         <Authors>CAPCOM CO., LTD.</Authors>
+        <IsPackable>false</IsPackable>
     </PropertyGroup>
 
 </Project>
