@@ -1726,6 +1726,46 @@ public sealed class Json5Document : Document
         }
         else
         {
+            using var skipSeparators = new Helper.LocalList<ulong>(stackalloc ulong[1]);
+            var separatorIndex = 0;
+            var pendingCommaIndex = -1;
+            var excessClosers = 0;
+
+            if (state.HasEndToken)
+            {
+                var closerCount = 0;
+
+                foreach (var triviaId in reader.EnumerateTrivia(tokenId))
+                {
+                    var trivia = reader.GetToken(triviaId);
+
+                    if (!trivia.IsExtended && trivia.TriviaKind == TriviaKind.Separator)
+                    {
+                        var separator = reader.ReadTrivia(triviaId);
+
+                        if (separator.SequenceEqual("}"u8) || separator.SequenceEqual("]"u8))
+                        {
+                            closerCount++;
+                        }
+                    }
+                }
+
+                if (state.EndTokenCount > closerCount)
+                {
+                    while (state.EndTokenCount > closerCount)
+                    {
+                        writer.WriteIndentNewLine();
+                        writer.WriteUtf8Byte(state.DequeueEndToken());
+                    }
+
+                    state.HeadEndTokenEmpty = false;
+                }
+
+                excessClosers = closerCount - state.EndTokenCount;
+            }
+
+            var valueSeparatorAllowed = state.HasEndToken ? !state.HeadEndTokenEmpty : state.NeedValueSeparator;
+
             foreach (var triviaId in reader.EnumerateTrivia(tokenId))
             {
                 var trivia = reader.GetToken(triviaId);
@@ -1740,26 +1780,72 @@ public sealed class Json5Document : Document
                 if (kind == TriviaKind.Separator)
                 {
                     var separator = reader.ReadTrivia(triviaId);
+                    var skip = false;
 
-                    if (separator.SequenceEqual("}"u8))
+                    if (separator.SequenceEqual("}"u8) || separator.SequenceEqual("]"u8))
                     {
-                        state.RemoveEndToken((byte)'}');
-                    }
-
-                    if (separator.SequenceEqual("]"u8))
-                    {
-                        state.RemoveEndToken((byte)']');
+                        if (excessClosers > 0)
+                        {
+                            excessClosers--;
+                            skip = true;
+                        }
+                        else if (state.RemoveEndToken(separator[0]))
+                        {
+                            valueSeparatorAllowed = true;
+                            pendingCommaIndex = -1;
+                        }
+                        else
+                        {
+                            skip = true;
+                        }
                     }
 
                     if (separator.SequenceEqual(","u8))
                     {
-                        state.NeedValueSeparator = false;
+                        if (valueSeparatorAllowed)
+                        {
+                            valueSeparatorAllowed = false;
+
+                            if (!state.HasEndToken)
+                            {
+                                state.NeedValueSeparator = false;
+                            }
+                            else
+                            {
+                                pendingCommaIndex = separatorIndex;
+                            }
+                        }
+                        else
+                        {
+                            skip = true;
+                        }
                     }
+
+                    if (skip)
+                    {
+                        skipSeparators.EnsureCount((separatorIndex >> 6) + 1);
+                        skipSeparators[separatorIndex >> 6] |= 1UL << (separatorIndex & 63);
+                    }
+
+                    separatorIndex++;
 
                     if (separator.SequenceEqual(":"u8))
                     {
                         state.NeedKeySeparator = false;
                     }
+                }
+            }
+
+            if (pendingCommaIndex >= 0 && state.HasEndToken)
+            {
+                if (state.NeedValueSeparator)
+                {
+                    state.NeedValueSeparator = false;
+                }
+                else
+                {
+                    skipSeparators.EnsureCount((pendingCommaIndex >> 6) + 1);
+                    skipSeparators[pendingCommaIndex >> 6] |= 1UL << (pendingCommaIndex & 63);
                 }
             }
 
@@ -1784,6 +1870,8 @@ public sealed class Json5Document : Document
                 writer.WriteUtf8Byte((byte)',');
             }
 
+            separatorIndex = 0;
+
             foreach (var triviaId in reader.EnumerateTrivia(tokenId))
             {
                 var trivia = reader.GetToken(triviaId);
@@ -1802,6 +1890,19 @@ public sealed class Json5Document : Document
                 }
                 else
                 {
+                    if (trivia.TriviaKind == TriviaKind.Separator)
+                    {
+                        var skip = (separatorIndex >> 6) < skipSeparators.Count &&
+                                   (skipSeparators[separatorIndex >> 6] & (1UL << (separatorIndex & 63))) != 0;
+
+                        separatorIndex++;
+
+                        if (skip)
+                        {
+                            continue;
+                        }
+                    }
+
                     WriteTrivia(writer, reader, triviaId, ref state);
                 }
             }
@@ -1858,7 +1959,7 @@ public sealed class Json5Document : Document
 
                 if (preserveSyntax)
                 {
-                    state.EnqueueEndToken((byte)']');
+                    state.EnqueueEndToken((byte)']', reader.GetValueCount(tokenId) == 0);
                 }
                 else
                 {
@@ -1971,7 +2072,7 @@ public sealed class Json5Document : Document
 
                 if (preserveSyntax)
                 {
-                    state.EnqueueEndToken((byte)'}');
+                    state.EnqueueEndToken((byte)'}', reader.GetValueCount(tokenId) == 0);
                 }
                 else
                 {
@@ -2366,9 +2467,16 @@ public sealed class Json5Document : Document
 
         public bool HasEndToken => _endTokenCount != 0;
 
+        public readonly int EndTokenCount => _endTokenCount;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void EnqueueEndToken(byte token)
+        public void EnqueueEndToken(byte token, bool isEmpty)
         {
+            if (_endTokenCount == 0)
+            {
+                HeadEndTokenEmpty = isEmpty;
+            }
+
             if (_endTokenCount >= _maxDepth)
             {
                 throw new InvalidOperationException(
@@ -2414,17 +2522,19 @@ public sealed class Json5Document : Document
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void RemoveEndToken(byte token)
+        public bool RemoveEndToken(byte token)
         {
             if (_endTokenCount == 0)
             {
-                return;
+                return false;
             }
 
             if (GetEndToken(_endTokenHead) != token)
             {
-                return;
+                return false;
             }
+
+            HeadEndTokenEmpty = false;
 
             _endTokenHead++;
 
@@ -2439,6 +2549,8 @@ public sealed class Json5Document : Document
             {
                 _endTokenHead = 0;
             }
+
+            return true;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -2514,6 +2626,7 @@ public sealed class Json5Document : Document
         private readonly int _maxDepth;
 
         public bool NeedValueSeparator;
+        public bool HeadEndTokenEmpty;
         public bool NeedKeySeparator;
         public bool WriteIndented;
     }
