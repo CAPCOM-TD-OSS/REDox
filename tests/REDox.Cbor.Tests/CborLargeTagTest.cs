@@ -1,5 +1,4 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
 using SysCborTag = System.Formats.Cbor.CborTag;
 using SysCborWriter = System.Formats.Cbor.CborWriter;
 
@@ -16,7 +15,7 @@ public sealed class CborLargeTagTest
         0x1_0000_0003UL,
         0x1_0000_0001UL,
         0x8000_0000_0000_0002UL,
-        ulong.MaxValue,
+        ulong.MaxValue
     };
 
     private static byte[] CreateTaggedByteString(ulong tag, byte[] payload)

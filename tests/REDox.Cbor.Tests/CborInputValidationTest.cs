@@ -1,5 +1,6 @@
-﻿﻿using System;
+﻿using System;
 using System.IO;
+using REDox.Json;
 
 namespace REDox.Cbor.Tests;
 
@@ -127,11 +128,11 @@ public sealed class CborInputValidationTest
         var input = Convert.FromHexString(hex);
 
         using var document = CborDocument.Parse(input);
-        Assert.Equal(expected, REDox.Json.JsonDocument.EncodeToString(document.RootElement));
+        Assert.Equal(expected, JsonDocument.EncodeToString(document.RootElement));
         Assert.True(CborDocument.TryParse(input, out var result));
         using (result)
         {
-            Assert.Equal(expected, REDox.Json.JsonDocument.EncodeToString(result.RootElement));
+            Assert.Equal(expected, JsonDocument.EncodeToString(result.RootElement));
         }
     }
 
@@ -206,11 +207,11 @@ public sealed class CborInputValidationTest
         var options = new CborDocumentOptions { UseSequenceFormat = true };
 
         using var document = CborDocument.Parse(input, options: options);
-        Assert.Equal(expected, REDox.Json.JsonDocument.EncodeToString(document.RootElement));
+        Assert.Equal(expected, JsonDocument.EncodeToString(document.RootElement));
         Assert.True(CborDocument.TryParse(input, out var result, options: options));
         using (result)
         {
-            Assert.Equal(expected, REDox.Json.JsonDocument.EncodeToString(result.RootElement));
+            Assert.Equal(expected, JsonDocument.EncodeToString(result.RootElement));
         }
     }
 }

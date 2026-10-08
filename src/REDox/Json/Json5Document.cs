@@ -1892,7 +1892,7 @@ public sealed class Json5Document : Document
                 {
                     if (trivia.TriviaKind == TriviaKind.Separator)
                     {
-                        var skip = (separatorIndex >> 6) < skipSeparators.Count &&
+                        var skip = separatorIndex >> 6 < skipSeparators.Count &&
                                    (skipSeparators[separatorIndex >> 6] & (1UL << (separatorIndex & 63))) != 0;
 
                         separatorIndex++;
@@ -2465,30 +2465,30 @@ public sealed class Json5Document : Document
             _maxDepth = maxDepth;
         }
 
-        public bool HasEndToken => _endTokenCount != 0;
+        public bool HasEndToken => EndTokenCount != 0;
 
-        public readonly int EndTokenCount => _endTokenCount;
+        public int EndTokenCount { get; private set; }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void EnqueueEndToken(byte token, bool isEmpty)
         {
-            if (_endTokenCount == 0)
+            if (EndTokenCount == 0)
             {
                 HeadEndTokenEmpty = isEmpty;
             }
 
-            if (_endTokenCount >= _maxDepth)
+            if (EndTokenCount >= _maxDepth)
             {
                 throw new InvalidOperationException(
                     "MaxDepth exceeded while writing JSON5.");
             }
 
-            if (_endTokenCount == Capacity)
+            if (EndTokenCount == Capacity)
             {
                 ResizeEndTokenBuffer();
             }
 
-            var index = _endTokenHead + _endTokenCount;
+            var index = _endTokenHead + EndTokenCount;
 
             if (index >= Capacity)
             {
@@ -2496,7 +2496,7 @@ public sealed class Json5Document : Document
             }
 
             SetEndToken(index, token);
-            _endTokenCount++;
+            EndTokenCount++;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -2511,9 +2511,9 @@ public sealed class Json5Document : Document
                 _endTokenHead = 0;
             }
 
-            _endTokenCount--;
+            EndTokenCount--;
 
-            if (_endTokenCount == 0)
+            if (EndTokenCount == 0)
             {
                 _endTokenHead = 0;
             }
@@ -2524,7 +2524,7 @@ public sealed class Json5Document : Document
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool RemoveEndToken(byte token)
         {
-            if (_endTokenCount == 0)
+            if (EndTokenCount == 0)
             {
                 return false;
             }
@@ -2543,9 +2543,9 @@ public sealed class Json5Document : Document
                 _endTokenHead = 0;
             }
 
-            _endTokenCount--;
+            EndTokenCount--;
 
-            if (_endTokenCount == 0)
+            if (EndTokenCount == 0)
             {
                 _endTokenHead = 0;
             }
@@ -2596,7 +2596,7 @@ public sealed class Json5Document : Document
             var buffer = new ulong[newWordCount];
 
             // Ring buffer -> linear bit sequence.
-            for (var i = 0; i < _endTokenCount; i++)
+            for (var i = 0; i < EndTokenCount; i++)
             {
                 var sourceIndex = _endTokenHead + i;
 
@@ -2622,7 +2622,6 @@ public sealed class Json5Document : Document
         private ulong[]? _heapEndTokenBits;
 
         private int _endTokenHead;
-        private int _endTokenCount;
         private readonly int _maxDepth;
 
         public bool NeedValueSeparator;

@@ -1,5 +1,9 @@
-﻿using REDox.Json;
+﻿using System;
+using System.Linq;
+using System.Text.Json.Nodes;
+using REDox.Json;
 using REDox.Serialization;
+using Xunit.Sdk;
 
 namespace REDox.Tests;
 
@@ -290,9 +294,9 @@ public class Json5WriteTest
         var options = new Json5DocumentOptions { PreserveTrivia = true, MaxDepth = 256 };
         var writeOptions = new Json5WriteOptions { PreserveTrivia = true, MaxDepth = 256 };
 
-        var random = new System.Random(seed);
+        var random = new Random(seed);
         var doc = Json5Document.Parse(json5, options: options);
-        var model = System.Text.Json.Nodes.JsonNode.Parse(doc.RootElement.ToJsonString())!.AsObject();
+        var model = JsonNode.Parse(doc.RootElement.ToJsonString())!.AsObject();
         var nextKey = 0;
 
         try
@@ -308,54 +312,54 @@ public class Json5WriteTest
                 switch (random.Next(9))
                 {
                     case 0:
-                    {
-                        var key = "k" + nextKey++;
-                        var value = random.Next(100);
-                        obj[key] = value;
-                        mObj[key] = value;
-                        break;
-                    }
-                    case 1 when obj.Count > 0:
-                    {
-                        var key = System.Linq.Enumerable.ElementAt(mObj, random.Next(mObj.Count)).Key;
-                        Assert.True(obj.Remove(key));
-                        mObj.Remove(key);
-                        break;
-                    }
-                    case 2:
-                    {
-                        var index = random.Next(arr.Count + 1);
-                        var value = random.Next(100);
-                        arr.Insert(index, value);
-                        mArr.Insert(index, value);
-                        break;
-                    }
-                    case 3 when arr.Count > 0:
-                    {
-                        var index = random.Next(arr.Count);
-                        arr.RemoveAt(index);
-                        mArr.RemoveAt(index);
-                        break;
-                    }
-                    case 4:
-                    {
-                        var value = random.Next(100);
-                        arr.Add(new DObject { ["v"] = value, ["w"] = new DArray(value) });
-                        mArr.Add(new System.Text.Json.Nodes.JsonObject
                         {
-                            ["v"] = value,
-                            ["w"] = new System.Text.Json.Nodes.JsonArray(value)
-                        });
-                        break;
-                    }
+                            var key = "k" + nextKey++;
+                            var value = random.Next(100);
+                            obj[key] = value;
+                            mObj[key] = value;
+                            break;
+                        }
+                    case 1 when obj.Count > 0:
+                        {
+                            var key = Enumerable.ElementAt(mObj, random.Next(mObj.Count)).Key;
+                            Assert.True(obj.Remove(key));
+                            mObj.Remove(key);
+                            break;
+                        }
+                    case 2:
+                        {
+                            var index = random.Next(arr.Count + 1);
+                            var value = random.Next(100);
+                            arr.Insert(index, value);
+                            mArr.Insert(index, value);
+                            break;
+                        }
+                    case 3 when arr.Count > 0:
+                        {
+                            var index = random.Next(arr.Count);
+                            arr.RemoveAt(index);
+                            mArr.RemoveAt(index);
+                            break;
+                        }
+                    case 4:
+                        {
+                            var value = random.Next(100);
+                            arr.Add(new DObject { ["v"] = value, ["w"] = new DArray(value) });
+                            mArr.Add(new JsonObject
+                            {
+                                ["v"] = value,
+                                ["w"] = new JsonArray(value)
+                            });
+                            break;
+                        }
                     case 5 when arr.Count > 0:
-                    {
-                        var index = random.Next(arr.Count);
-                        var value = random.Next(100);
-                        arr[index].ReplaceWith(new DArray(value, value + 1));
-                        mArr[index] = new System.Text.Json.Nodes.JsonArray(value, value + 1);
-                        break;
-                    }
+                        {
+                            var index = random.Next(arr.Count);
+                            var value = random.Next(100);
+                            arr[index].ReplaceWith(new DArray(value, value + 1));
+                            mArr[index] = new JsonArray(value, value + 1);
+                            break;
+                        }
                     case 6 when random.Next(8) == 0:
                         arr.Clear();
                         mArr.Clear();
@@ -365,13 +369,13 @@ public class Json5WriteTest
                         mObj.Clear();
                         break;
                     case 8 when obj.Count > 0:
-                    {
-                        var key = System.Linq.Enumerable.ElementAt(mObj, random.Next(mObj.Count)).Key;
-                        var value = random.Next(100);
-                        obj[key].ReplaceWith(new DObject { ["r"] = value });
-                        mObj[key] = new System.Text.Json.Nodes.JsonObject { ["r"] = value };
-                        break;
-                    }
+                        {
+                            var key = Enumerable.ElementAt(mObj, random.Next(mObj.Count)).Key;
+                            var value = random.Next(100);
+                            obj[key].ReplaceWith(new DObject { ["r"] = value });
+                            mObj[key] = new JsonObject { ["r"] = value };
+                            break;
+                        }
                 }
 
                 if (step % 5 != 4)
@@ -386,11 +390,11 @@ public class Json5WriteTest
                 {
                     next = Json5Document.Parse(result, options: options);
                 }
-                catch (System.Exception e)
+                catch (Exception e)
                 {
                     _output.WriteLine($"seed={seed} step={step}");
                     _output.WriteLine(result);
-                    throw new Xunit.Sdk.XunitException($"Invalid JSON5 at step {step}: {e.Message}\n{result}");
+                    throw new XunitException($"Invalid JSON5 at step {step}: {e.Message}\n{result}");
                 }
 
                 doc.Dispose();
@@ -409,9 +413,9 @@ public class Json5WriteTest
 
     private static void AssertJsonEqual(string expected, string actual)
     {
-        var e = System.Text.Json.Nodes.JsonNode.Parse(expected);
-        var a = System.Text.Json.Nodes.JsonNode.Parse(actual);
-        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(e, a), $"expected: {expected}\nactual:   {actual}");
+        var e = JsonNode.Parse(expected);
+        var a = JsonNode.Parse(actual);
+        Assert.True(JsonNode.DeepEquals(e, a), $"expected: {expected}\nactual:   {actual}");
     }
 
     [Fact]

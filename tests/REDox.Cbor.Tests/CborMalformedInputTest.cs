@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
+using REDox.Json;
 
 namespace REDox.Cbor.Tests;
 
@@ -11,7 +12,7 @@ public sealed class CborMalformedInputTest
         byte[] alice = [0x82, 0x65, (byte)'a', (byte)'l', (byte)'i', (byte)'c', (byte)'e', 0x19, 0x10, 0xE1];
         using (var doc = CborDocument.Parse(alice))
         {
-            Assert.Equal("""["alice",4321]""", REDox.Json.JsonDocument.EncodeToString(doc.RootElement));
+            Assert.Equal("""["alice",4321]""", JsonDocument.EncodeToString(doc.RootElement));
         }
 
         byte[] attack = [0x82, 0xF5];

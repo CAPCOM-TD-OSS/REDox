@@ -878,10 +878,10 @@ public readonly partial struct DElement : IEquatable<DElement>
     }
 
     /// <summary>
-    /// Gets the array element at the specified index.
+    ///     Gets the array element at the specified index.
     /// </summary>
     /// <remarks>
-    /// For parsed arrays this is an O(n) operation. Use <see cref="EnumerateArray"/> to iterate all elements.
+    ///     For parsed arrays this is an O(n) operation. Use <see cref="EnumerateArray" /> to iterate all elements.
     /// </remarks>
     public DElement this[int index]
     {

@@ -36,7 +36,7 @@ public sealed class JsonTextEncoderInvalidUtf8Test
         { "NonBmp", [0xE1, 0x80, (byte)'"', (byte)'<', (byte)'\\', (byte)'\n'] },
         { "Ranges", [0xE1, 0x80, (byte)'"', (byte)'<', (byte)'\\', (byte)'\n'] },
         { "NonBmp", [0xF0, 0x90, 0x80, (byte)'"', (byte)'<', (byte)'\\', (byte)'\n'] },
-        { "Ranges", [0xF0, 0x90, 0x80, (byte)'"', (byte)'<', (byte)'\\', (byte)'\n'] },
+        { "Ranges", [0xF0, 0x90, 0x80, (byte)'"', (byte)'<', (byte)'\\', (byte)'\n'] }
     };
 
     private static TextEncoderPolicy CreatePolicy(string kind)

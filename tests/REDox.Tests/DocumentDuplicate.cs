@@ -102,13 +102,19 @@ public class DocumentDuplicate
     {
         using var doc = JsonDocument.Parse("""{"A":{"B":[1,2,{"C":3}]},"D":[4,5]}""");
 
-        DValue OriginalC() => doc.RootElement.AsObject()["A"].AsObject()["B"].AsArray()[2].AsObject()["C"];
+        DValue OriginalC()
+        {
+            return doc.RootElement.AsObject()["A"].AsObject()["B"].AsArray()[2].AsObject()["C"];
+        }
 
         Assert.Equal("$.A.B[2].C", OriginalC().GetPath());
 
         var dup = doc.Duplicate();
 
-        DValue DupC() => dup.RootElement.AsObject()["A"].AsObject()["B"].AsArray()[2].AsObject()["C"];
+        DValue DupC()
+        {
+            return dup.RootElement.AsObject()["A"].AsObject()["B"].AsArray()[2].AsObject()["C"];
+        }
 
         dup.RootElement.AsObject()["D"].AsArray().Add(6);
         dup.RootElement.AsObject().Add("E", "x");

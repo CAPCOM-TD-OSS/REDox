@@ -51,7 +51,7 @@ public class Json5MutationGrowthTest
             switch (random.Next(6))
             {
                 case 0 when obj.Count < MaxItems:
-                    obj["k" + (nextKey++ % 64)] = random.Next(100);
+                    obj["k" + nextKey++ % 64] = random.Next(100);
                     break;
                 case 1 when obj.Count > 0:
                     obj.Remove(obj.First().Key);

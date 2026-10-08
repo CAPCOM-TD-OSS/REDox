@@ -6,13 +6,10 @@ namespace REDox.Tests;
 
 public sealed class PooledBufferLifetimeTest
 {
-    public sealed class Request
+    private static Stream Body(string s)
     {
-        public string? User { get; set; }
-        public object? Meta { get; set; }
+        return new MemoryStream(Encoding.UTF8.GetBytes(s));
     }
-
-    private static Stream Body(string s) => new MemoryStream(Encoding.UTF8.GetBytes(s));
 
     [Fact]
     public void DeserializedObjectMemberMustNotObserveReturnedPoolBuffer()
@@ -31,5 +28,11 @@ public sealed class PooledBufferLifetimeTest
         var after = req.Meta?.ToString();
         Assert.Equal(before, after);
         Assert.DoesNotContain("5500-0000-0000-0004", after);
+    }
+
+    public sealed class Request
+    {
+        public string? User { get; set; }
+        public object? Meta { get; set; }
     }
 }

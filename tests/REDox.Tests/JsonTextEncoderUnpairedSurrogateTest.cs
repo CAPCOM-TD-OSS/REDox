@@ -11,7 +11,29 @@ public sealed class JsonTextEncoderUnpairedSurrogateTest
     private const string High = "%H";
     private const string Low = "%L";
 
-    private static string Expand(string s) => s.Replace(High, "\ud83d").Replace(Low, "\ude42");
+    public static TheoryData<string, string> RangesInputs => new()
+    {
+        { High, "\\ufffd" },
+        { Low, "\\ufffd" },
+        { High + "\"", "\\ufffd\\\"" },
+        { Low + "\"", "\\ufffd\\\"" },
+        { High + "<", "\\ufffd\\u003c" },
+        { High + "\\", "\\ufffd\\\\" },
+        { High + "a", "\\ufffda" },
+        { High + High + "\"", "\\ufffd\\ufffd\\\"" },
+        { Low + Low, "\\ufffd\\ufffd" },
+        { High + High + Low, "\\ufffd🙂" },
+        { Low + High + Low, "\\ufffd🙂" },
+        { High + Low + "\"", "🙂\\\"" },
+        { "\U00010000", "\U00010000" },
+        { "\U0010ffff", "\U0010ffff" },
+        { "asciiéあ", "ascii\\u00e9あ" }
+    };
+
+    private static string Expand(string s)
+    {
+        return s.Replace(High, "\ud83d").Replace(Low, "\ude42");
+    }
 
     public static TheoryData<string, string, string> UnpairedSurrogateInputs()
     {
@@ -62,25 +84,6 @@ public sealed class JsonTextEncoderUnpairedSurrogateTest
         Assert.EndsWith(expectedTail, body);
         AssertNoUnescapedSpecialCharacters(body, output);
     }
-
-    public static TheoryData<string, string> RangesInputs => new()
-    {
-        { High, "\\ufffd" },
-        { Low, "\\ufffd" },
-        { High + "\"", "\\ufffd\\\"" },
-        { Low + "\"", "\\ufffd\\\"" },
-        { High + "<", "\\ufffd\\u003c" },
-        { High + "\\", "\\ufffd\\\\" },
-        { High + "a", "\\ufffda" },
-        { High + High + "\"", "\\ufffd\\ufffd\\\"" },
-        { Low + Low, "\\ufffd\\ufffd" },
-        { High + High + Low, "\\ufffd🙂" },
-        { Low + High + Low, "\\ufffd🙂" },
-        { High + Low + "\"", "🙂\\\"" },
-        { "\U00010000", "\U00010000" },
-        { "\U0010ffff", "\U0010ffff" },
-        { "asciiéあ", "ascii\\u00e9あ" },
-    };
 
     [Theory]
     [MemberData(nameof(RangesInputs))]
