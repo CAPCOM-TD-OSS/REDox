@@ -29,31 +29,21 @@ public readonly struct DTriviaCollection
     {
         ThrowIfInvalid();
 
-        using var enumerator = GetEnumerator();
-
-        if (enumerator.MoveNext())
-        {
-            var list = _element.Document.GetElementTriviaList(_element.Id);
-            list.Clear();
-        }
+        _element.Document.ClearTrivia(_element.Id);
     }
 
     public void AddFirst(string value, TriviaKind kind = TriviaKind.Default)
     {
         ThrowIfInvalid();
 
-        var list = _element.Document.GetElementTriviaList(_element.Id);
-
-        list.Insert(0, _element.Document.JoinTrivia(0, Encoding.UTF8.GetBytes(value), kind));
+        _element.Document.AddTrivia(_element.Id, Encoding.UTF8.GetBytes(value), kind, true);
     }
 
     public void AddLast(string value, TriviaKind kind = TriviaKind.Default)
     {
         ThrowIfInvalid();
 
-        var list = _element.Document.GetElementTriviaList(_element.Id);
-
-        list.Add(_element.Document.JoinTrivia(0, Encoding.UTF8.GetBytes(value), kind));
+        _element.Document.AddTrivia(_element.Id, Encoding.UTF8.GetBytes(value), kind, false);
     }
 
     public Document.TriviaEnumerator GetEnumerator()

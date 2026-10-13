@@ -18,7 +18,9 @@ public readonly struct DTrivia : IEquatable<DTrivia>
                 return false;
             }
 
-            return _doc.Version == _version;
+            return Id != 0 && _doc.Version == _version &&
+                   _doc.GetToken(Id).Kind == DTokenKind.Trivia &&
+                   _doc.GetElementTriviaVersion(_tokenId) == _triviaVersion;
         }
     }
 
@@ -49,6 +51,7 @@ public readonly struct DTrivia : IEquatable<DTrivia>
     public void ReplaceWith(string text, TriviaKind kind = TriviaKind.Inherit)
     {
         ThrowIfInvalid();
+        _doc.EnsureElementTriviaList(_tokenId);
         _doc.JoinTrivia(Id, Utf8Helper.GetUtf8String(text), kind);
     }
 
@@ -71,21 +74,26 @@ public readonly struct DTrivia : IEquatable<DTrivia>
 
     public bool Equals(DTrivia other)
     {
-        return _doc == other._doc && Id == other.Id && _version == other._version;
+        return _doc == other._doc && Id == other.Id && _version == other._version &&
+               _tokenId == other._tokenId && _triviaVersion == other._triviaVersion;
     }
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(_doc, Id, _version);
+        return HashCode.Combine(_doc, Id, _version, _tokenId, _triviaVersion);
     }
 
-    internal DTrivia(Document document, uint id)
+    internal DTrivia(Document document, uint id, uint tokenId)
     {
         _doc = document;
         Id = id;
+        _tokenId = tokenId;
         _version = document.Version;
+        _triviaVersion = document.GetElementTriviaVersion(tokenId);
     }
 
     private readonly int _version;
+    private readonly int _triviaVersion;
     private readonly Document _doc;
+    private readonly uint _tokenId;
 }

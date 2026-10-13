@@ -373,6 +373,140 @@ static class Helper
         private readonly int _maxDepth;
     }
 
+    public ref struct LocalUtf8KeySet
+    {
+        public struct Entry
+        {
+            // A text token is never zero, so the default token can mark an empty slot.
+            public DToken Key;
+            public int Hash;
+        }
+
+        private readonly Document _document;
+        private readonly bool _ignoreCase;
+        private Span<Entry> _entries;
+        private Entry[]? _rented;
+        private int _count;
+
+        /// <summary>
+        ///     Creates a set of text tokens compared by the document's
+        ///     <see cref="SerializerSettings.PropertyNameCaseInsensitive" /> setting.
+        /// </summary>
+        /// <param name="document">The document that resolves the text of the added tokens.</param>
+        /// <param name="buffer">Initial storage whose length is zero or a power of two.</param>
+        public LocalUtf8KeySet(Document document, Span<Entry> buffer)
+        {
+            if ((buffer.Length & (buffer.Length - 1)) != 0)
+            {
+                throw new ArgumentException("Capacity must be a power of two.", nameof(buffer));
+            }
+
+            _document = document;
+            _ignoreCase = document.Settings.PropertyNameCaseInsensitive;
+            _entries = buffer;
+            _rented = null;
+            _count = 0;
+            _entries.Clear();
+        }
+
+        /// <summary>Adds a text token to the set.</summary>
+        /// <param name="key">A text token resolvable by the document passed to the constructor.</param>
+        /// <returns><see langword="false" /> if an equal key already exists; otherwise, <see langword="true" />.</returns>
+        public bool Add(DToken key)
+        {
+            var bytes = _document.GetTextBytes(key);
+            var hash = Utf8Helper.GetHashCode(bytes, _ignoreCase);
+
+            if (_entries.IsEmpty)
+            {
+                Grow();
+            }
+
+            while (true)
+            {
+                var mask = _entries.Length - 1;
+                var index = hash & mask;
+                while (!_entries[index].Key.Equals(default))
+                {
+                    ref var entry = ref _entries[index];
+                    if (entry.Hash == hash && (entry.Key.Equals(key) ||
+                                               IsSameText(entry.Key, bytes)))
+                    {
+                        return false;
+                    }
+
+                    index = (index + 1) & mask;
+                }
+
+                // Grow only for a new key, and keep at least a quarter of the slots empty.
+                if (_count >= _entries.Length - (_entries.Length >> 2))
+                {
+                    Grow();
+                    continue;
+                }
+
+                _entries[index] = new Entry { Key = key, Hash = hash };
+                _count++;
+                return true;
+            }
+        }
+
+        private readonly bool IsSameText(DToken key, ReadOnlySpan<byte> bytes)
+        {
+            return Utf8Helper.Equals(_document.GetTextBytes(key), bytes, _ignoreCase);
+        }
+
+        private void Grow()
+        {
+            var capacity = Math.Max(32, checked(_entries.Length * 2));
+            var rented = ArrayPool<Entry>.Shared.Rent(capacity);
+            var entries = rented.AsSpan(0, capacity);
+            entries.Clear();
+
+            foreach (var entry in _entries)
+            {
+                if (entry.Key.Equals(default))
+                {
+                    continue;
+                }
+
+                var index = entry.Hash & (capacity - 1);
+                while (!entries[index].Key.Equals(default))
+                {
+                    index = (index + 1) & (capacity - 1);
+                }
+
+                entries[index] = entry;
+            }
+
+            var previous = _rented;
+            _entries = entries;
+            _rented = rented;
+            if (previous != null)
+            {
+                ArrayPool<Entry>.Shared.Return(previous);
+            }
+        }
+
+        public void Clear()
+        {
+            _entries.Clear();
+            _count = 0;
+        }
+
+        public void Dispose()
+        {
+            if (_rented != null)
+            {
+                ArrayPool<Entry>.Shared.Return(_rented);
+                _rented = null;
+            }
+
+            _entries = default;
+            _count = 0;
+        }
+    }
+
     private sealed class Gen2GcCallback
     {
         private readonly Action _callback;
