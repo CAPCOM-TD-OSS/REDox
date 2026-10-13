@@ -2,11 +2,20 @@
     <PropertyGroup>
         <RootNamespace>REDox.Ini</RootNamespace>
         <Title>$(AssemblyName)</Title>
-        <Description>INI support</Description>
+        <Description>INI parser/writer with an editable token DOM and comment/formatting preservation</Description>
         <PackageId>CAPCOM.$(AssemblyName)</PackageId>
         <PackageTags>$(PackageTags);ini;parser;config</PackageTags>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\REDox\REDox.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <None Remove="..\..\README.md" />
+        <None Update="README.md">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
     </ItemGroup>
 </Project>

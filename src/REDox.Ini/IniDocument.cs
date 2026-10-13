@@ -7,11 +7,18 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using REDox.Serialization;
 
 namespace REDox.Ini;
 
+/// <summary>Represents an editable INI document backed by UTF-8 data.</summary>
+/// <remarks>
+///     The root contains global keys and section objects. Names are case-sensitive unless
+///     <see cref="SerializerSettings.PropertyNameCaseInsensitive" /> is enabled, and parsed values are text.
+///     Dispose the document when finished; its elements are valid only while the document is in use.
+/// </remarks>
 public sealed class IniDocument : Document
 {
     private byte[]? _rentedBuffer;
@@ -22,6 +29,30 @@ public sealed class IniDocument : Document
     {
     }
 
+    /// <summary>Gets the editable trivia following the document's last key or section.</summary>
+    /// <remarks>
+    ///     Parsed trailing comments and whitespace are retained when <see cref="IniDocumentOptions.PreserveTrivia" />
+    ///     is enabled. Use <see cref="IniWriteOptions.PreserveTrivia" /> to include trailing comments in output.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">This document has been disposed.</exception>
+    public DTriviaCollection TrailingTrivia
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(!IsValid, this);
+            // Keep the trivia IDs in a list before replacements change their token representation.
+            EnsureElementTriviaList(_tailId);
+            return new DValue(this, _tailId).LeadingTrivia;
+        }
+    }
+
+    /// <summary>Creates a snapshot with independent token storage.</summary>
+    /// <returns>A document that remains valid after this document is disposed.</returns>
+    /// <remarks>
+    ///     Rented input is copied. Caller-supplied byte arrays and memory may remain shared and must not be modified
+    ///     while either document is in use.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">This document has been disposed.</exception>
     public IniDocument Duplicate()
     {
         var doc = CreateSnapshot<IniDocument>();
@@ -35,6 +66,8 @@ public sealed class IniDocument : Document
         return doc;
     }
 
+    /// <summary>Releases the document's token storage and any rented input buffer.</summary>
+    /// <param name="disposing">Whether the method is called during explicit disposal.</param>
     protected override void Dispose(bool disposing)
     {
         if (_rentedBuffer != null)
@@ -46,6 +79,16 @@ public sealed class IniDocument : Document
         base.Dispose(disposing);
     }
 
+    /// <summary>Reads UTF-8 INI data from a stream and parses it into a document.</summary>
+    /// <param name="stream">The stream to read from its current position to the end. The stream remains open.</param>
+    /// <param name="settings">
+    ///     The serializer settings, or <see langword="null" /> to use
+    ///     <see cref="SerializerSettings.Default" />.
+    /// </param>
+    /// <param name="options">The parsing options.</param>
+    /// <returns>A document that must be disposed when no longer needed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="stream" /> is <see langword="null" />.</exception>
+    /// <exception cref="DocumentParseException">The input is invalid under the supplied parsing options.</exception>
     public static IniDocument Parse(Stream stream, SerializerSettings? settings = null,
         IniDocumentOptions options = default)
     {
@@ -69,6 +112,15 @@ public sealed class IniDocument : Document
         }
     }
 
+    /// <summary>Encodes an INI string as UTF-8 and parses it into a document.</summary>
+    /// <param name="ini">The INI text to parse.</param>
+    /// <param name="settings">
+    ///     The serializer settings, or <see langword="null" /> to use
+    ///     <see cref="SerializerSettings.Default" />.
+    /// </param>
+    /// <param name="options">The parsing options.</param>
+    /// <returns>A document that must be disposed when no longer needed.</returns>
+    /// <exception cref="DocumentParseException">The input is invalid under the supplied parsing options.</exception>
     public static IniDocument Parse(string ini, SerializerSettings? settings = null,
         IniDocumentOptions options = default)
     {
@@ -92,16 +144,31 @@ public sealed class IniDocument : Document
         }
     }
 
-    /// <remarks>
-    ///     The returned document takes ownership of <paramref name="ini" /> and references it without copying.
-    ///     The caller must not modify the buffer while the document is in use.
-    /// </remarks>
+    /// <summary>Parses a UTF-8 INI byte array without copying it.</summary>
+    /// <param name="ini">The UTF-8 INI data to parse.</param>
+    /// <param name="settings">
+    ///     The serializer settings, or <see langword="null" /> to use
+    ///     <see cref="SerializerSettings.Default" />.
+    /// </param>
+    /// <param name="options">The parsing options.</param>
+    /// <returns>A document that must be disposed when no longer needed.</returns>
+    /// <remarks>The caller must not modify the input while this document or a snapshot of it is in use.</remarks>
+    /// <exception cref="DocumentParseException">The input is invalid under the supplied parsing options.</exception>
     public static IniDocument Parse(byte[] ini, SerializerSettings? settings = null,
         IniDocumentOptions options = default)
     {
         return Parse(ini.AsMemory(), settings, options);
     }
 
+    /// <summary>Copies UTF-8 INI data into document-owned storage and parses it.</summary>
+    /// <param name="ini">The UTF-8 INI data to parse.</param>
+    /// <param name="settings">
+    ///     The serializer settings, or <see langword="null" /> to use
+    ///     <see cref="SerializerSettings.Default" />.
+    /// </param>
+    /// <param name="options">The parsing options.</param>
+    /// <returns>A document that must be disposed when no longer needed.</returns>
+    /// <exception cref="DocumentParseException">The input is invalid under the supplied parsing options.</exception>
     public static IniDocument Parse(ReadOnlySpan<byte> ini, SerializerSettings? settings = null,
         IniDocumentOptions options = default)
     {
@@ -125,10 +192,16 @@ public sealed class IniDocument : Document
         }
     }
 
-    /// <remarks>
-    ///     The returned document takes ownership of <paramref name="ini" /> and references it without copying.
-    ///     The caller must not modify the buffer while the document is in use.
-    /// </remarks>
+    /// <summary>Parses UTF-8 INI memory without copying it.</summary>
+    /// <param name="ini">The UTF-8 INI data to parse.</param>
+    /// <param name="settings">
+    ///     The serializer settings, or <see langword="null" /> to use
+    ///     <see cref="SerializerSettings.Default" />.
+    /// </param>
+    /// <param name="options">The parsing options.</param>
+    /// <returns>A document that must be disposed when no longer needed.</returns>
+    /// <remarks>The caller must keep the input valid and unchanged while this document or a snapshot of it is in use.</remarks>
+    /// <exception cref="DocumentParseException">The input is invalid under the supplied parsing options.</exception>
     public static IniDocument Parse(ReadOnlyMemory<byte> ini, SerializerSettings? settings = null,
         IniDocumentOptions options = default)
     {
@@ -170,6 +243,16 @@ public sealed class IniDocument : Document
         }
     }
 
+    /// <summary>Tries to parse UTF-8 INI data, copying it into document-owned storage.</summary>
+    /// <param name="ini">The UTF-8 INI data to parse.</param>
+    /// <param name="document">The parsed document on success, or <see langword="null" /> on a parsing failure.</param>
+    /// <param name="settings">
+    ///     The serializer settings, or <see langword="null" /> to use
+    ///     <see cref="SerializerSettings.Default" />.
+    /// </param>
+    /// <param name="options">The parsing options.</param>
+    /// <returns><see langword="true" /> if parsing succeeds; otherwise, <see langword="false" />.</returns>
+    /// <remarks>The returned document must be disposed when no longer needed.</remarks>
     public static bool TryParse(ReadOnlySpan<byte> ini, [NotNullWhen(true)] out IniDocument? document,
         SerializerSettings? settings = null,
         IniDocumentOptions options = default)
@@ -203,7 +286,7 @@ public sealed class IniDocument : Document
             }
 
             document.RootId = 1;
-            document._tailId = document.AllocToken(default);
+            document._tailId = document.AllocToken(DToken.Make(DTokenVariant.Null, 0));
             return true;
         }
         finally
@@ -215,6 +298,10 @@ public sealed class IniDocument : Document
         }
     }
 
+    /// <summary>Writes an element as an INI string.</summary>
+    /// <param name="element">The root object containing global values and section objects.</param>
+    /// <param name="options">The output formatting options.</param>
+    /// <returns>The encoded INI text.</returns>
     public static string EncodeToString(DElement element,
         IniWriteOptions options = default)
     {
@@ -228,6 +315,11 @@ public sealed class IniDocument : Document
         }
     }
 
+    /// <summary>Writes an element as UTF-8 INI data to a stream.</summary>
+    /// <param name="element">The root object containing global values and section objects.</param>
+    /// <param name="stream">The destination stream, which remains open.</param>
+    /// <param name="options">The output formatting options.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="stream" /> is <see langword="null" />.</exception>
     public static void EncodeTo(DElement element, Stream stream,
         IniWriteOptions options = default)
     {
@@ -247,6 +339,11 @@ public sealed class IniDocument : Document
         }
     }
 
+    /// <summary>Writes an element as UTF-8 INI data to a buffer writer.</summary>
+    /// <param name="element">The root object containing global values and section objects.</param>
+    /// <param name="bufferWriter">The destination buffer writer, owned by the caller.</param>
+    /// <param name="options">The output formatting options.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bufferWriter" /> is <see langword="null" />.</exception>
     public static void EncodeTo(DElement element, IBufferWriter<byte> bufferWriter,
         IniWriteOptions options = default)
     {
@@ -266,6 +363,10 @@ public sealed class IniDocument : Document
         }
     }
 
+    /// <summary>Writes an element as a UTF-8 INI byte array.</summary>
+    /// <param name="element">The root object containing global values and section objects.</param>
+    /// <param name="options">The output formatting options.</param>
+    /// <returns>A new byte array containing the encoded INI data.</returns>
     public static byte[] Encode(DElement element, IniWriteOptions options = default)
     {
         using (var cache = Helper.InstanceCache<Utf8TextWriter>.Get(() => new Utf8TextWriter()))
@@ -282,12 +383,13 @@ public sealed class IniDocument : Document
     private static void Write(Utf8TextWriter writer, in DataReader reader, IniWriteOptions options)
     {
         var iniDocument = reader.Document as IniDocument;
-        var state = new SeparatorState();
+        var state = new SeparatorState { CommentStyle = options.CommentStyle };
 
         WriteIni(writer, in reader, iniDocument, reader.RootId, ref options, ref state);
 
         if (options.PreserveTrivia && iniDocument != null && iniDocument.RootElement.Equals(reader.RootElement))
         {
+            state.AllowWriteComment = true;
             WriteTriviaList(writer, in reader, iniDocument, iniDocument._tailId, ref state);
         }
     }
@@ -308,7 +410,7 @@ public sealed class IniDocument : Document
         }
 
         RootId = 1;
-        _tailId = AllocToken(default);
+        _tailId = AllocToken(DToken.Make(DTokenVariant.Null, 0));
     }
 
     private static int TrimEnd(ReadOnlySpan<byte> bytes, int start, int end)
@@ -331,48 +433,55 @@ public sealed class IniDocument : Document
         return start;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsLineEnding(byte value)
     {
         return value is (byte)'\r' or (byte)'\n';
     }
 
-    private static int FindLineEnd(ReadOnlySpan<byte> bytes, int index)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsCommentMarker(byte value, IniCommentSyntax syntax)
     {
-        while (index < bytes.Length && !IsLineEnding(bytes[index]))
-        {
-            index++;
-        }
-
-        return index;
+        return (value == (byte)';' && syntax != IniCommentSyntax.Hash) ||
+               (value == (byte)'#' && syntax != IniCommentSyntax.Semicolon);
     }
 
-    private static int FindValueEnd(ReadOnlySpan<byte> bytes, int start, bool allowInlineComments)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int FindLineEnd(ReadOnlySpan<byte> bytes, int index)
     {
-        var index = start;
-        var possibleCommentOffset = -1;
+        var offset = bytes.Slice(index).IndexOfAny((byte)'\r', (byte)'\n');
+        return offset < 0 ? bytes.Length : index + offset;
+    }
 
-        while (index < bytes.Length && !IsLineEnding(bytes[index]))
+    private static int FindValueEnd(ReadOnlySpan<byte> bytes, int start, bool allowInlineComments, IniCommentSyntax commentSyntax)
+    {
+        if (!allowInlineComments)
         {
-            var c = bytes[index];
+            return FindLineEnd(bytes, start);
+        }
 
-            if (allowInlineComments && c <= 0x20)
+        var index = start;
+        while (index < bytes.Length)
+        {
+            var remaining = bytes.Slice(index);
+            var offset = commentSyntax switch
             {
-                possibleCommentOffset = index;
-
-                do
-                {
-                    index++;
-                } while (index < bytes.Length && !IsLineEnding(bytes[index]) && bytes[index] <= 0x20);
-
-                if (index < bytes.Length && bytes[index] is (byte)';' or (byte)'#')
-                {
-                    return possibleCommentOffset;
-                }
-
-                continue;
+                IniCommentSyntax.Semicolon => remaining.IndexOfAny((byte)'\r', (byte)'\n', (byte)';'),
+                IniCommentSyntax.Hash => remaining.IndexOfAny((byte)'\r', (byte)'\n', (byte)'#'),
+                _ => remaining.IndexOfAny("\r\n;#"u8)
+            };
+            if (offset < 0)
+            {
+                return bytes.Length;
             }
 
-            if (allowInlineComments && index == start && c is (byte)';' or (byte)'#')
+            index += offset;
+            if (IsLineEnding(bytes[index]) || index == start)
+            {
+                return index;
+            }
+
+            if (bytes[index - 1] <= 0x20)
             {
                 return index;
             }
@@ -383,20 +492,7 @@ public sealed class IniDocument : Document
         return index;
     }
 
-    private static int IndexOfNull(ReadOnlySpan<byte> bytes, int start, int end)
-    {
-        for (var i = start; i < end; i++)
-        {
-            if (bytes[i] == 0)
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
-    private void ConsumeTrivia(ReadOnlySpan<byte> bytes, ref int index, bool preserveTrivia)
+    private void ConsumeTrivia(ReadOnlySpan<byte> bytes, ref int index, bool preserveTrivia, IniCommentSyntax commentSyntax)
     {
         while (index < bytes.Length)
         {
@@ -419,7 +515,7 @@ public sealed class IniDocument : Document
                 continue;
             }
 
-            if (c is (byte)';' or (byte)'#')
+            if (IsCommentMarker(c, commentSyntax))
             {
                 index = FindLineEnd(bytes, index);
 
@@ -444,11 +540,17 @@ public sealed class IniDocument : Document
         var parentId = rootId;
         var sectionId = 0U;
         var preserveTrivia = options.PreserveTrivia;
-        var globalKeys = options.AllowDuplicateKeys ? null : new HashSet<string>();
-        var sectionKeys = options.AllowDuplicateKeys ? null : new HashSet<string>();
+        var globalBuffer = options.AllowDuplicateKeys
+            ? []
+            : stackalloc Helper.LocalUtf8KeySet.Entry[32];
+        var sectionBuffer = options.AllowDuplicateKeys
+            ? []
+            : stackalloc Helper.LocalUtf8KeySet.Entry[32];
+        using var globalKeys = new Helper.LocalUtf8KeySet(this, globalBuffer);
+        using var sectionKeys = new Helper.LocalUtf8KeySet(this, sectionBuffer);
 
         var index = 0;
-        var nullIndex = IndexOfNull(bytes, 0, bytes.Length);
+        var nullIndex = bytes.IndexOf((byte)0);
 
         if (nullIndex >= 0)
         {
@@ -459,7 +561,7 @@ public sealed class IniDocument : Document
 
         while (index < bytes.Length)
         {
-            ConsumeTrivia(bytes, ref index, preserveTrivia);
+            ConsumeTrivia(bytes, ref index, preserveTrivia, options.CommentSyntax);
 
             if (index >= bytes.Length)
             {
@@ -475,11 +577,8 @@ public sealed class IniDocument : Document
                         var sectionOffset = index;
                         var offset = ++index;
 
-                        while (index < bytes.Length && bytes[index] != ']' && bytes[index] != '\r' &&
-                               bytes[index] != '\n')
-                        {
-                            index++;
-                        }
+                        var sectionEnd = bytes.Slice(index).IndexOfAny((byte)']', (byte)'\r', (byte)'\n');
+                        index = sectionEnd < 0 ? bytes.Length : index + sectionEnd;
 
                         if (index >= bytes.Length || bytes[index] != ']')
                         {
@@ -498,12 +597,12 @@ public sealed class IniDocument : Document
                             goto parseError;
                         }
 
-                        if (globalKeys != null)
-                        {
-                            var sectionName = Encoding.UTF8.GetString(
-                                bytes.Slice(sectionNameOffset, sectionNameEnd - sectionNameOffset));
+                        var sectionToken = DToken.Make(DTokenVariant.String,
+                            DToken.EncodeLengthOffsetPayload(sectionNameEnd - sectionNameOffset, sectionNameOffset));
 
-                            if (!globalKeys.Add(sectionName))
+                        if (!options.AllowDuplicateKeys)
+                        {
+                            if (!globalKeys.Add(sectionToken))
                             {
                                 errorCode = ParseException.ErrorCode.DuplicateKey;
                                 index = sectionNameOffset;
@@ -517,8 +616,7 @@ public sealed class IniDocument : Document
                                 DToken.EncodeLengthOffsetPayload(sectionNameOffset - sectionOffset, sectionOffset)));
                         }
 
-                        var tokenId = AllocToken(DToken.Make(DTokenVariant.String,
-                            DToken.EncodeLengthOffsetPayload(sectionNameEnd - sectionNameOffset, sectionNameOffset)));
+                        var tokenId = AllocToken(sectionToken);
 
                         index++;
 
@@ -531,7 +629,7 @@ public sealed class IniDocument : Document
                         var triviaOffset = index;
 
                         while (index < bytes.Length && !IsLineEnding(bytes[index]) &&
-                               bytes[index] != ';' && bytes[index] != '#')
+                               !IsCommentMarker(bytes[index], options.CommentSyntax))
                         {
                             if (bytes[index] > 0x20)
                             {
@@ -548,7 +646,7 @@ public sealed class IniDocument : Document
                                 DToken.EncodeLengthOffsetPayload(index - triviaOffset, triviaOffset)));
                         }
 
-                        ConsumeTrivia(bytes, ref index, preserveTrivia);
+                        ConsumeTrivia(bytes, ref index, preserveTrivia, options.CommentSyntax);
 
                         if (sectionId != 0)
                         {
@@ -559,22 +657,20 @@ public sealed class IniDocument : Document
 
                         parentId = AllocToken(DToken.MakeMap(0));
                         sectionId = parentId;
-                        sectionKeys?.Clear();
+                        sectionKeys.Clear();
                     }
                     break;
                 default:
                     if (c <= 0x20)
                     {
-                        ConsumeTrivia(bytes, ref index, preserveTrivia);
+                        ConsumeTrivia(bytes, ref index, preserveTrivia, options.CommentSyntax);
                     }
                     else
                     {
                         var kOffset = index;
 
-                        while (index < bytes.Length && bytes[index] != '=' && !IsLineEnding(bytes[index]))
-                        {
-                            index++;
-                        }
+                        var keyEnd = bytes.Slice(index).IndexOfAny((byte)'=', (byte)'\r', (byte)'\n');
+                        index = keyEnd < 0 ? bytes.Length : index + keyEnd;
 
                         if (index >= bytes.Length || bytes[index] != '=')
                         {
@@ -592,13 +688,15 @@ public sealed class IniDocument : Document
                             goto parseError;
                         }
 
-                        var keySet = parentId == rootId ? globalKeys : sectionKeys;
+                        var keyToken = DToken.Make(DTokenVariant.String,
+                            DToken.EncodeLengthOffsetPayload(kEnd - kOffset, kOffset));
 
-                        if (keySet != null)
+                        if (!options.AllowDuplicateKeys)
                         {
-                            var key = Encoding.UTF8.GetString(bytes.Slice(kOffset, kEnd - kOffset));
-
-                            if (!keySet.Add(key))
+                            var added = parentId == rootId
+                                ? globalKeys.Add(keyToken)
+                                : sectionKeys.Add(keyToken);
+                            if (!added)
                             {
                                 errorCode = ParseException.ErrorCode.DuplicateKey;
                                 index = kOffset;
@@ -606,8 +704,7 @@ public sealed class IniDocument : Document
                             }
                         }
 
-                        AllocToken(DToken.Make(DTokenVariant.String,
-                            DToken.EncodeLengthOffsetPayload(kEnd - kOffset, kOffset)));
+                        AllocToken(keyToken);
 
                         var separatorOffset = kEnd;
                         index++;
@@ -619,7 +716,7 @@ public sealed class IniDocument : Document
 
                         var vOffset = index;
 
-                        index = FindValueEnd(bytes, index, options.AllowInlineComments);
+                        index = FindValueEnd(bytes, index, options.AllowInlineComments, options.CommentSyntax);
 
                         var vEnd = TrimEnd(bytes, vOffset, index);
 
@@ -634,7 +731,10 @@ public sealed class IniDocument : Document
 
                         IncToken(parentId);
 
-                        index = vEnd;
+                        if (preserveTrivia)
+                        {
+                            index = vEnd;
+                        }
                     }
 
                     break;
@@ -668,11 +768,31 @@ public sealed class IniDocument : Document
             return;
         }
 
+        var replacedSection = false;
+        if (options.PreserveTrivia && document != null && value.IsExtended)
+        {
+            foreach (var triviaId in reader.EnumerateTrivia(kv.Value))
+            {
+                var triviaToken = reader.GetToken(triviaId);
+                if (!triviaToken.IsExtended && triviaToken.TriviaKind == TriviaKind.Separator &&
+                    reader.ReadTrivia(triviaId).IndexOf((byte)']') >= 0)
+                {
+                    replacedSection = true;
+                    break;
+                }
+            }
+        }
+
         if (options.PreserveTrivia)
         {
             state.AllowWriteComment = true;
             WriteTriviaList(writer, reader, document, kv.Key, ref state);
             state.AllowWriteComment = false;
+
+            if (replacedSection)
+            {
+                WriteSectionHeaderComments(writer, reader, document!, kv.Value, ref state);
+            }
         }
 
         if (state.NeedNewLine)
@@ -681,10 +801,11 @@ public sealed class IniDocument : Document
             writer.WriteNewLine();
         }
 
+        state.NeedCommentTerminator = false;
         writer.WriteString(reader.ReadUtf8String(kv.Key));
 
         state.NeedKeySeparator = true;
-        if (options.PreserveTrivia)
+        if (options.PreserveTrivia && !replacedSection)
         {
             WriteTriviaList(writer, reader, document, kv.Value, ref state);
         }
@@ -761,17 +882,62 @@ public sealed class IniDocument : Document
         }
     }
 
+    private static void WriteSectionHeaderComments(Utf8TextWriter writer, in DataReader reader, IniDocument document,
+        uint tokenId, ref SeparatorState state)
+    {
+        foreach (var triviaId in reader.EnumerateTrivia(tokenId))
+        {
+            var triviaToken = reader.GetToken(triviaId);
+            if (triviaToken.TriviaKind is not (TriviaKind.LineComment or TriviaKind.BlockComment or TriviaKind.Default))
+            {
+                continue;
+            }
+
+            WriteComment(writer, reader.ReadTrivia(triviaId),
+                GetOutputCommentChar(document, triviaToken, state.CommentStyle), ref state);
+            if (state.NeedNewLine)
+            {
+                writer.WriteNewLine();
+            }
+
+            state.NeedNewLine = false;
+            state.NeedCommentTerminator = false;
+        }
+    }
+
     private static void WriteTriviaList(Utf8TextWriter writer, in DataReader reader, IniDocument? document,
         uint tokenId,
         ref SeparatorState state)
     {
         foreach (var triviaId in reader.EnumerateTrivia(tokenId))
         {
-            var triviaKind = reader.GetToken(triviaId).TriviaKind;
+            var triviaToken = reader.GetToken(triviaId);
+            var triviaKind = triviaToken.TriviaKind;
             var trivia = reader.ReadTrivia(triviaId);
 
-            if (document != null && !reader.GetToken(triviaId).IsExtended)
+            if (document != null && !triviaToken.IsExtended)
             {
+                // Generated comments must end before retained trivia resumes.
+                if (state.NeedCommentTerminator)
+                {
+                    if (triviaKind != TriviaKind.Whitespace || trivia.IndexOfAny((byte)'\r', (byte)'\n') < 0)
+                    {
+                        writer.WriteNewLine();
+                    }
+
+                    state.NeedNewLine = false;
+                    state.NeedCommentTerminator = false;
+                }
+
+                // A prefix originally at the start of the file now follows generated global keys.
+                if (state.NeedStartSectionSeparator && state.NeedNewLine &&
+                    DToken.DecodeLengthOffsetPayload(triviaToken).offset == 0 &&
+                    (triviaKind != TriviaKind.Whitespace || trivia.IndexOfAny((byte)'\r', (byte)'\n') < 0))
+                {
+                    state.NeedNewLine = false;
+                    writer.WriteNewLine();
+                }
+
                 switch (triviaKind)
                 {
                     case TriviaKind.Separator:
@@ -782,17 +948,33 @@ public sealed class IniDocument : Document
 
                         if (trivia.IndexOf((byte)'[') >= 0)
                         {
+                            if (!state.NeedStartSectionSeparator)
+                            {
+                                continue;
+                            }
+
+                            if (state.NeedNewLine)
+                            {
+                                state.NeedNewLine = false;
+                                writer.WriteNewLine();
+                            }
+
                             state.NeedStartSectionSeparator = false;
                         }
 
                         if (trivia.IndexOf((byte)']') >= 0)
                         {
+                            if (!state.NeedEndSectionSeparator)
+                            {
+                                continue;
+                            }
+
                             state.NeedEndSectionSeparator = false;
                         }
 
                         break;
                     case TriviaKind.Whitespace:
-                        if (trivia.IndexOf((byte)'\n') >= 0)
+                        if (trivia.IndexOfAny((byte)'\r', (byte)'\n') >= 0)
                         {
                             state.NeedNewLine = false;
                         }
@@ -802,7 +984,8 @@ public sealed class IniDocument : Document
 
                 if (triviaKind == TriviaKind.LineComment)
                 {
-                    writer.WriteUtf8Byte(document.GetCommentChar(reader.GetToken(triviaId)));
+                    writer.WriteUtf8Byte(GetOutputCommentChar(document, triviaToken, state.CommentStyle));
+                    state.NeedNewLine = true;
                 }
 
                 writer.WriteString(trivia);
@@ -814,21 +997,35 @@ public sealed class IniDocument : Document
                     continue;
                 }
 
-                if (triviaKind == TriviaKind.LineComment || triviaKind == TriviaKind.Default)
+                if (triviaKind is TriviaKind.LineComment or TriviaKind.BlockComment or TriviaKind.Default)
                 {
-                    if (state.NeedNewLine)
-                    {
-                        writer.WriteNewLine();
-                    }
-
-                    writer.WriteUtf8Byte((byte)';');
-                    writer.WriteString(trivia);
-                    state.NeedNewLine = true;
+                    WriteComment(writer, trivia, GetOutputCommentChar(document, triviaToken, state.CommentStyle),
+                        ref state);
                 }
             }
         }
     }
 
+
+    private static void WriteContainerComments(Utf8TextWriter writer, in DataReader reader, IniDocument? document,
+        uint tokenId, ref SeparatorState state)
+    {
+        foreach (var triviaId in reader.EnumerateTrivia(tokenId))
+        {
+            var triviaToken = reader.GetToken(triviaId);
+            // Retained INI separators and comments are written with their source formatting.
+            if (document != null && !triviaToken.IsExtended)
+            {
+                continue;
+            }
+
+            if (triviaToken.TriviaKind is TriviaKind.LineComment or TriviaKind.BlockComment or TriviaKind.Default)
+            {
+                WriteComment(writer, reader.ReadTrivia(triviaId),
+                    GetOutputCommentChar(document, triviaToken, state.CommentStyle), ref state);
+            }
+        }
+    }
 
     private static void WriteIni(Utf8TextWriter writer, in DataReader reader, IniDocument? document, uint tokenId,
         ref IniWriteOptions options, ref SeparatorState state)
@@ -838,6 +1035,11 @@ public sealed class IniDocument : Document
         if (token.Type != DTokenType.Map)
         {
             return;
+        }
+
+        if (options.PreserveTrivia)
+        {
+            WriteContainerComments(writer, reader, document, tokenId, ref state);
         }
 
         foreach (var kv in reader.EnumerateMap(tokenId))
@@ -883,6 +1085,7 @@ public sealed class IniDocument : Document
                 writer.WriteUtf8Byte((byte)'[');
             }
 
+            state.NeedCommentTerminator = false;
             writer.WriteString(reader.ReadUtf8String(kv.Key));
 
             state.NeedNewLine = true;
@@ -899,12 +1102,67 @@ public sealed class IniDocument : Document
                 writer.WriteUtf8Byte((byte)']');
             }
 
+            if (options.PreserveTrivia)
+            {
+                WriteContainerComments(writer, reader, document, kv.Value, ref state);
+            }
+
             foreach (var kv2 in reader.EnumerateMap(kv.Value))
             {
                 WriteIniKeyValue(writer, reader, document, kv2, ref options, ref state);
                 state.NeedNewLine = true;
             }
         }
+    }
+
+    private static void WriteComment(Utf8TextWriter writer, ReadOnlySpan<byte> comment, byte marker,
+        ref SeparatorState state)
+    {
+        if (state.NeedNewLine)
+        {
+            writer.WriteNewLine();
+        }
+
+        while (true)
+        {
+            writer.WriteUtf8Byte(marker);
+            var lineEnd = comment.IndexOfAny((byte)'\r', (byte)'\n');
+            if (lineEnd < 0)
+            {
+                writer.WriteString(comment);
+                state.NeedNewLine = true;
+                state.NeedCommentTerminator = true;
+                return;
+            }
+
+            writer.WriteString(comment.Slice(0, lineEnd));
+            writer.WriteNewLine();
+            var newLineLength = comment[lineEnd] == (byte)'\r' && lineEnd + 1 < comment.Length &&
+                                comment[lineEnd + 1] == (byte)'\n'
+                ? 2
+                : 1;
+            comment = comment.Slice(lineEnd + newLineLength);
+            if (comment.IsEmpty)
+            {
+                state.NeedNewLine = false;
+                state.NeedCommentTerminator = false;
+                return;
+            }
+        }
+    }
+
+    private static byte GetOutputCommentChar(IniDocument? document, DToken token, IniCommentStyle style)
+    {
+        return style switch
+        {
+            IniCommentStyle.AlwaysHash => (byte)'#',
+            IniCommentStyle.AlwaysSemicolon => (byte)';',
+            _ => document != null && !token.IsExtended && token.TriviaKind == TriviaKind.LineComment
+                ? document.GetCommentChar(token)
+                : style == IniCommentStyle.PreserveOrHash
+                    ? (byte)'#'
+                    : (byte)';'
+        };
     }
 
     private byte GetCommentChar(DToken token)
@@ -914,6 +1172,9 @@ public sealed class IniDocument : Document
         return _source.Span.Slice(param.offset, 1)[0];
     }
 
+    /// <summary>Retrieves the source bytes for a trivia token, excluding a line comment's delimiter.</summary>
+    /// <param name="token">The trivia token to decode.</param>
+    /// <returns>The corresponding source bytes.</returns>
     protected override ReadOnlySpan<byte> DecodeTrivia(DToken token)
     {
         var param = DToken.DecodeLengthOffsetPayload(token);
@@ -926,6 +1187,9 @@ public sealed class IniDocument : Document
         return _source.Span.Slice(param.offset, param.length);
     }
 
+    /// <summary>Retrieves the UTF-8 source bytes referenced by a token.</summary>
+    /// <param name="token">The token to decode.</param>
+    /// <returns>The corresponding source bytes.</returns>
     protected override ReadOnlySpan<byte> DecodeUtf8Bytes(DToken token)
     {
         var param = DToken.DecodeLengthOffsetPayload(token);
@@ -935,7 +1199,9 @@ public sealed class IniDocument : Document
 
     private ref struct SeparatorState
     {
+        public IniCommentStyle CommentStyle;
         public bool NeedNewLine;
+        public bool NeedCommentTerminator;
         public bool NeedKeySeparator;
         public bool NeedStartSectionSeparator;
         public bool NeedEndSectionSeparator;

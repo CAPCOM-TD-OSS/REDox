@@ -243,6 +243,7 @@ public sealed class IniEditTest
 
         var json5 = Json5Document.EncodeToString(doc.RootElement,
             new Json5WriteOptions { PreserveTrivia = true, WriteIndented = true });
+        Assert.Contains("//app", json5);
 
         using var reparsed = Json5Document.Parse(json5, options: new Json5DocumentOptions { PreserveTrivia = true });
 
@@ -297,9 +298,11 @@ public sealed class IniEditTest
                      rate = 1.23
                      ;Object
                      [human]
+                     ;Object
                      age = 44
                      ;Object
                      [map]
+                     ;Object
                      any = mode
                      """, NormalizeNewLines(ini2));
     }
@@ -415,7 +418,7 @@ public sealed class IniEditTest
         Assert.Equal("""
                      ; Application configuration & UserComment
                      application_name = SampleApp
-                     [   window]
+                     [   window   ]
                      ;this is width
                      width = 1280
                      ;this is height

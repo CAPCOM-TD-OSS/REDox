@@ -4,6 +4,7 @@
         <Project Path="benchmarks/REDox.Json.Benchmarks/REDox.Json.Benchmarks.csproj" />
         <Project Path="benchmarks/REDox.Cbor.Benchmarks/REDox.Cbor.Benchmarks.csproj" />
         <Project Path="benchmarks/REDox.Dynamic.Benchmarks/REDox.Dynamic.Benchmarks.csproj" />
+        <Project Path="benchmarks/REDox.Ini.Benchmarks/REDox.Ini.Benchmarks.csproj" />
         <Project Path="benchmarks/REDox.MessagePack.Benchmarks/REDox.MessagePack.Benchmarks.csproj" />
     </Folder>
     <Folder Name="/tests/">

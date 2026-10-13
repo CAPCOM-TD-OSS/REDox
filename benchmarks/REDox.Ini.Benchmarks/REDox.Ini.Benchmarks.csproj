@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+        <PackageReference Include="ini-parser-netstandard" Version="2.5.3" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Ini" Version="10.0.12" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../../src/REDox.Ini/REDox.Ini.csproj" />
+    </ItemGroup>
+</Project>
