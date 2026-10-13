@@ -1,6 +1,7 @@
 ﻿<Project>
     <PropertyGroup>
         <Nullable>enable</Nullable>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <TargetFramework>net10.0</TargetFramework>
 <!-- To generate a NuGet package, uncomment the following line -->
 <!--    <GeneratePackageOnBuild>true</GeneratePackageOnBuild> -->

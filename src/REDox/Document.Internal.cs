@@ -184,15 +184,7 @@ public abstract partial class Document
 
         return arr;
     }
-
-    private void EnsureExtendCapacity(int capacity)
-    {
-        if (_extends.Length < capacity)
-        {
-            ExpandExtends(capacity);
-        }
-    }
-
+    
     private void BuildParentTable(uint[] parentTable, uint rootId)
     {
         using var stack = new Helper.LocalStack<uint>(stackalloc uint[64], int.MaxValue);

@@ -260,16 +260,6 @@ static class Utf8Helper
     }
 
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void WriteString(DocumentWriter writer, ReadOnlySpan<char> chars)
-    {
-        var buf = writer.BeginWrite(chars.Length * 4);
-
-        var count = Encoding.UTF8.GetBytes(chars, buf);
-
-        writer.EndWrite(count);
-    }
-
     private static void FormatDecimalPart(Span<byte> buf, ref int bytes)
     {
         for (var i = 0; i < bytes; i++)

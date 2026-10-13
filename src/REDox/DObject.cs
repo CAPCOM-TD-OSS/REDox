@@ -505,7 +505,6 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         var obj = Document.AddExtendObject(capacity);
 
         _values[index] = new KeyValuePair<uint, uint>(entry.Key, obj.Id);
-        entry = _values[index];
 
         return obj;
     }
@@ -524,7 +523,6 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         var map = Document.AddExtendMap(capacity);
 
         _values[index] = new KeyValuePair<uint, uint>(entry.Key, map.Id);
-        entry = _values[index];
 
         return map;
     }
@@ -543,7 +541,6 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         var arr = Document.AddExtendArray(capacity);
 
         _values[index] = new KeyValuePair<uint, uint>(entry.Key, arr.Id);
-        entry = _values[index];
 
         return arr;
     }

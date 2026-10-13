@@ -353,7 +353,6 @@ public sealed class DocumentWriter : IDisposable, IAsyncDisposable, IBufferWrite
         }
 
         next = _bufferPosition + maxSize;
-        count = 0;
         BinaryPrimitives.WriteInt64LittleEndian(_buffer.AsSpan(_bufferOffset), (long)next << 32);
 
         if (_placeHolders == null)
