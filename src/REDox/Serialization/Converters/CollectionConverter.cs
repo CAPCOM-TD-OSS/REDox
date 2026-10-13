@@ -4,7 +4,10 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using REDox.Serialization.Metadata;
 
@@ -12,6 +15,14 @@ namespace REDox.Serialization.Converters;
 
 sealed class CollectionConverter : DataConverterFactory
 {
+    // Applications must preserve interfaces, constructors, and contract metadata
+    // for runtime-supplied collection types, including derived types.
+    private const string CollectionMetadata =
+        "The application must preserve collection interfaces, constructors, and contract metadata, including derived types.";
+
+    private const DynamicallyAccessedMemberTypes CollectionConstructors =
+        DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors;
+
     private static readonly Dictionary<Type, int> s_convertTypes = new()
     {
         { typeof(BitArray), 0 },
@@ -23,7 +34,9 @@ sealed class CollectionConverter : DataConverterFactory
         { typeof(IEnumerable), 3 }
     };
 
-    private static Type? GetConvertType(Type type)
+    private static Type? GetConvertType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)]
+        Type type)
     {
         if (s_convertTypes.ContainsKey(type))
         {
@@ -48,14 +61,23 @@ sealed class CollectionConverter : DataConverterFactory
         return infType;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = CollectionMetadata)]
     public override bool CanConvert(Type type)
     {
         return GetConvertType(type) != null;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = CollectionMetadata)]
+    [UnconditionalSuppressMessage("Trimming", "IL2071", Justification = CollectionMetadata)]
     public override DataConverter CreateConverter(Type type, SerializerSettings settings)
     {
-        switch (GetConvertType(type))
+        var convertType = GetConvertType(type);
+        if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
+        {
+            return CreateReflectionConverter(type, convertType, settings);
+        }
+
+        switch (convertType)
         {
             case var t when t == typeof(BitArray):
                 return new BitArrayConverter(settings);
@@ -79,15 +101,145 @@ sealed class CollectionConverter : DataConverterFactory
         throw new NotSupportedException();
     }
 
+    private static DataConverter CreateReflectionConverter(
+        [DynamicallyAccessedMembers(CollectionConstructors)]
+        Type type,
+        Type? convertType, SerializerSettings settings)
+    {
+        if (convertType == typeof(BitArray))
+        {
+            return new BitArrayConverter(settings);
+        }
+
+        if (convertType == typeof(Queue))
+        {
+            return new QueueConverter(settings);
+        }
+
+        if (convertType == typeof(Stack))
+        {
+            return new StackConverter(settings);
+        }
+
+        DataConverter converter;
+        if (convertType == typeof(IList))
+        {
+            converter = new ListConverter<IList>(type, CreateReflectionFactory<IList>(type), settings);
+        }
+        else if (convertType == typeof(IDictionary))
+        {
+            converter = new DictionaryConverter<IDictionary>(type, CreateReflectionFactory<IDictionary>(type), settings);
+        }
+        else if (convertType == typeof(ICollection))
+        {
+            converter = new CollectionInterfaceConverter<ICollection>(type, settings);
+        }
+        else if (convertType == typeof(IEnumerable))
+        {
+            converter = new EnumerableInterfaceConverter<IEnumerable>(type, settings);
+        }
+        else
+        {
+            throw new NotSupportedException();
+        }
+
+        return new DefaultConverter(type, converter, convertType == typeof(IEnumerable));
+    }
+
+    private static Func<T>? CreateReflectionFactory<T>(
+        [DynamicallyAccessedMembers(CollectionConstructors)]
+        Type type)
+    {
+        if (type.IsInterface)
+        {
+            return null;
+        }
+
+        // Match Expression.New(Type), including non-public parameterless constructors.
+        var constructor = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                              null, Type.EmptyTypes, null)
+                          ?? throw new NotSupportedException($"Collection type '{type}' has no parameterless constructor.");
+        return () => (T)constructor.Invoke(null);
+    }
+
+    private sealed class DefaultConverter : DataConverter
+    {
+        private readonly DataConverter _converter;
+        private readonly bool _enumerable;
+
+        public DefaultConverter(Type type, DataConverter converter, bool enumerable)
+        {
+            TargetType = type;
+            _converter = converter;
+            _enumerable = enumerable;
+        }
+
+        protected internal override Type TargetType { get; }
+
+        protected internal override DataConverter ResolvePropertyConverter(DataProperty property,
+            SerializerSettings settings)
+        {
+            var converter = _converter.ResolvePropertyConverter(property, settings);
+            return converter == _converter ? this : new DefaultConverter(TargetType, converter, _enumerable);
+        }
+
+        public override object? ReadObject(in DataReader reader, Type objectType, uint tokenId, object? existingValue)
+        {
+            if (existingValue != null && !TargetType.IsInstanceOfType(existingValue))
+            {
+                throw new InvalidCastException($"Existing collection cannot be converted to '{TargetType}'.");
+            }
+
+            var value = _converter.ReadObject(in reader, objectType, tokenId, existingValue);
+            if (value != null && !TargetType.IsInstanceOfType(value))
+            {
+                // Match the original enumerable converter, which returns null
+                // when the default array does not implement the requested type.
+                if (_enumerable)
+                {
+                    return null;
+                }
+
+                throw new InvalidCastException($"Collection value cannot be converted to '{TargetType}'.");
+            }
+
+            return value;
+        }
+
+        public override void WriteObject(DataWriter writer, Type objectType, object? value)
+        {
+            if (value != null && !TargetType.IsInstanceOfType(value))
+            {
+                throw new InvalidCastException($"Collection value cannot be converted to '{TargetType}'.");
+            }
+
+            _converter.WriteObject(writer, objectType, value);
+        }
+
+        public override object ReadObjectAsPropertyName(in DataReader reader, uint tokenId)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void WriteObjectAsPropertyName(DataWriter writer, object? value)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
     private abstract class EnumerateConverter<T> : DataConverter<T> where T : IEnumerable
     {
         private readonly bool _includeDerivedProperties;
         private bool _isReference;
         private DataProperty? _property;
 
-        public EnumerateConverter(SerializerSettings settings)
+        public EnumerateConverter(SerializerSettings settings) : this(typeof(T), settings)
         {
-            Contract = settings.GetContract(typeof(T));
+        }
+
+        protected EnumerateConverter(Type type, SerializerSettings settings)
+        {
+            Contract = settings.GetContract(type);
             Converter = (DataConverter<object>)settings.GetConverter(typeof(object));
             _isReference = (settings.PreserveReferencesHandling & PreserveReferencesHandling.Arrays) != 0;
             _includeDerivedProperties = settings.IncludeDerivedProperties;
@@ -122,11 +274,11 @@ sealed class CollectionConverter : DataConverterFactory
                 return;
             }
 
-            if (typeof(T).IsInterface && _includeDerivedProperties)
+            if (Contract.Type.IsInterface && _includeDerivedProperties)
             {
                 var converter = writer.Settings.GetConverter(value.GetType(), _property);
 
-                converter.WriteObject(writer, typeof(T), value);
+                converter.WriteObject(writer, Contract.Type, value);
             }
             else
             {
@@ -142,7 +294,7 @@ sealed class CollectionConverter : DataConverterFactory
                 return;
             }
 
-            WriteData(writer, (T)value, objectType != typeof(T));
+            WriteData(writer, (T)value, objectType != Contract.Type);
         }
 
         private void WriteData(DataWriter writer, T value, bool typeNeeded)
@@ -263,6 +415,10 @@ sealed class CollectionConverter : DataConverterFactory
         {
         }
 
+        public CollectionInterfaceConverter(Type type, SerializerSettings settings) : base(type, settings)
+        {
+        }
+
         public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
         {
             if (existingValue != null)
@@ -270,10 +426,10 @@ sealed class CollectionConverter : DataConverterFactory
                 return (T?)reader.ReadObject(tokenId, existingValue.GetType(), existingValue);
             }
 
-            T? value = default;
-            if (reader.ReadTypedArray(Contract, tokenId, ref value))
+            object? value = null;
+            if (reader.ReadTypedArray(Contract, Contract.Type, tokenId, ref value))
             {
-                return value;
+                return (T?)value;
             }
 
             var list = new object?[reader.GetValueCount(tokenId)];
@@ -289,10 +445,14 @@ sealed class CollectionConverter : DataConverterFactory
         }
     }
 
-    private class ListConverter<T> : EnumerateConverter<T> where T : IList
+    private class ListConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        T>
+        : EnumerateConverter<T> where T : IList
     {
         private readonly Func<T>? _generator;
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         public ListConverter(SerializerSettings settings) : base(settings)
         {
             if (!typeof(T).IsInterface)
@@ -301,11 +461,17 @@ sealed class CollectionConverter : DataConverterFactory
             }
         }
 
+        public ListConverter(Type type, Func<T>? generator, SerializerSettings settings) : base(type, settings)
+        {
+            _generator = generator;
+        }
+
         public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
         {
-            if (reader.ReadTypedArray(Contract, tokenId, ref existingValue))
+            object? value = existingValue;
+            if (reader.ReadTypedArray(Contract, Contract.Type, tokenId, ref value))
             {
-                return existingValue;
+                return (T?)value;
             }
 
             IList? collection = existingValue;
@@ -334,13 +500,17 @@ sealed class CollectionConverter : DataConverterFactory
             return (T)collection;
         }
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         private static Func<T> CreateFactory()
         {
             return Expression.Lambda<Func<T>>(Expression.New(typeof(T))).Compile();
         }
     }
 
-    private class DictionaryConverter<T> : DataConverter<T> where T : IDictionary
+    private class DictionaryConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        T>
+        : DataConverter<T> where T : IDictionary
     {
         private readonly DataContract _contract;
         private readonly DictionaryFormatHandling _dictionaryFormat;
@@ -351,14 +521,16 @@ sealed class CollectionConverter : DataConverterFactory
         private bool _isReference;
         private DataProperty? _property;
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         public DictionaryConverter(SerializerSettings settings)
+            : this(typeof(T), typeof(T).IsInterface ? null : CreateFactory(), settings)
         {
-            if (!typeof(T).IsInterface)
-            {
-                _generator = CreateFactory();
-            }
+        }
 
-            _contract = settings.GetContract(typeof(T));
+        public DictionaryConverter(Type type, Func<T>? generator, SerializerSettings settings)
+        {
+            _generator = generator;
+            _contract = settings.GetContract(type);
             _isReference = (settings.PreserveReferencesHandling & PreserveReferencesHandling.Arrays) != 0;
             _dictionaryFormat = settings.DictionaryFormatHandling;
             _unknownObjectType = settings.UnknownObjectTypeHandling;
@@ -507,11 +679,11 @@ sealed class CollectionConverter : DataConverterFactory
                 return;
             }
 
-            if (typeof(T).IsInterface && _includeDerivedProperties)
+            if (_contract.Type.IsInterface && _includeDerivedProperties)
             {
                 var converter = writer.Settings.GetConverter(value.GetType(), _property);
 
-                converter.WriteObject(writer, typeof(T), value);
+                converter.WriteObject(writer, _contract.Type, value);
             }
             else
             {
@@ -527,7 +699,7 @@ sealed class CollectionConverter : DataConverterFactory
                 return;
             }
 
-            var typeNeeded = objectType != typeof(T);
+            var typeNeeded = objectType != _contract.Type;
 
             WriteData(writer, (T)value, typeNeeded);
         }
@@ -624,6 +796,7 @@ sealed class CollectionConverter : DataConverterFactory
             }
         }
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         private static Func<T> CreateFactory()
         {
             return Expression.Lambda<Func<T>>(Expression.New(typeof(T))).Compile();
@@ -636,17 +809,21 @@ sealed class CollectionConverter : DataConverterFactory
         {
         }
 
+        public EnumerableInterfaceConverter(Type type, SerializerSettings settings) : base(type, settings)
+        {
+        }
+
         public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
         {
-            if (existingValue != null && typeof(T).IsInterface)
+            if (existingValue != null && Contract.Type.IsInterface)
             {
                 return (T?)reader.ReadObject(tokenId, existingValue.GetType(), existingValue);
             }
 
-            var value = existingValue;
-            if (reader.ReadTypedArray(Contract, tokenId, ref value))
+            object? value = existingValue;
+            if (reader.ReadTypedArray(Contract, Contract.Type, tokenId, ref value))
             {
-                return value;
+                return (T?)value;
             }
 
             var list = new object?[reader.GetValueCount(tokenId)];

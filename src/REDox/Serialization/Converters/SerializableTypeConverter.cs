@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using REDox.Serialization.Metadata;
 
@@ -20,22 +22,47 @@ sealed class SerializableTypeConverter : DataConverterFactory
         return type.IsDefined(typeof(SerializableAttribute), true) && type.IsAssignableTo(typeof(ISerializable));
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2055",
+        Justification = "The application must preserve the serialization constructor of ISerializable types it serializes.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "The application must preserve the serialization constructor of ISerializable types it serializes.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2071",
+        Justification = "The application must preserve the serialization constructor of ISerializable types it serializes.")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(SerializableConverter<>))]
     public override DataConverter CreateConverter(Type type, SerializerSettings settings)
     {
+        if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
+        {
+            // Avoid generic instantiation over arbitrary types: use a shared converter that
+            // works on ISerializable and creates instances through reflection.
+            return new SerializableConverter<ISerializable>(settings, type);
+        }
+
         return ConverterHelper.CreateConverter(typeof(SerializableConverter<>).MakeGenericType(type), settings);
     }
 
     private class SerializableConverter<T> : DataConverter<T> where T : ISerializable
     {
+        private const DynamicallyAccessedMemberTypes ConstructorMembers =
+            DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors;
+
         private readonly DataContract _contract;
         private readonly Func<SerializationInfo, StreamingContext, T> _generator;
+        private readonly Type _type;
         private bool _isReference;
         private DataProperty? _property;
 
-        public SerializableConverter(SerializerSettings settings)
+        [UnconditionalSuppressMessage("Trimming", "IL2087",
+            Justification = "The application must preserve the serialization constructor of ISerializable types it serializes.")]
+        public SerializableConverter(SerializerSettings settings) : this(settings, typeof(T))
         {
-            _generator = CreateFactory();
-            _contract = settings.GetContract(typeof(T));
+        }
+
+        internal SerializableConverter(SerializerSettings settings, [DynamicallyAccessedMembers(ConstructorMembers)] Type type)
+        {
+            _type = type;
+            _generator = CreateFactory(type);
+            _contract = settings.GetContract(type);
             _isReference = _contract.IsReference;
 
             if ((settings.PreserveReferencesHandling & PreserveReferencesHandling.Objects) != 0)
@@ -70,14 +97,14 @@ sealed class SerializableTypeConverter : DataConverterFactory
             if (existingValue != null)
             {
                 var type = existingValue.GetType();
-                if (type != typeof(T))
+                if (type != _type)
                 {
                     return (T?)reader.Settings.GetConverter(type)
-                        .ReadObject(in reader, typeof(T), tokenId, existingValue);
+                        .ReadObject(in reader, _type, tokenId, existingValue);
                 }
             }
 
-            var info = new SerializationInfo(typeof(T), s_formatter);
+            var info = new SerializationInfo(_type, s_formatter);
             uint refId = 0;
 
             foreach (var kv in reader.EnumerateMap(tokenId))
@@ -129,9 +156,9 @@ sealed class SerializableTypeConverter : DataConverterFactory
                 if (writer.Settings.IncludeDerivedProperties || _contract.IsPolymorphic)
                 {
                     var type = value.GetType();
-                    if (type != typeof(T))
+                    if (type != _type)
                     {
-                        writer.Settings.GetConverter(type, _property).WriteObject(writer, typeof(T), value);
+                        writer.Settings.GetConverter(type, _property).WriteObject(writer, _type, value);
                         return;
                     }
                 }
@@ -148,13 +175,13 @@ sealed class SerializableTypeConverter : DataConverterFactory
             }
             else
             {
-                Write(writer, (T)value, objectType != typeof(T));
+                Write(writer, (T)value, objectType != _type);
             }
         }
 
         private void Write(DataWriter writer, T value, bool typeNeeded)
         {
-            var info = new SerializationInfo(typeof(T), s_formatter);
+            var info = new SerializationInfo(_type, s_formatter);
 
             value.GetObjectData(info, writer.Settings.Context);
 
@@ -210,14 +237,23 @@ sealed class SerializableTypeConverter : DataConverterFactory
             writer.WriteEndMap();
         }
 
-        private Func<SerializationInfo, StreamingContext, T> CreateFactory()
+        private static Func<SerializationInfo, StreamingContext, T> CreateFactory(
+            [DynamicallyAccessedMembers(ConstructorMembers)]
+            Type type)
         {
-            var constructor = typeof(T).GetConstructor(
+            var constructor = type.GetConstructor(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
                 null,
                 new[] { typeof(SerializationInfo), typeof(StreamingContext) },
                 null
-            )!;
+            ) ?? throw new NotSupportedException(
+                $"The type '{type}' does not have a serialization constructor (SerializationInfo, StreamingContext).");
+
+            if (!RuntimeFeature.IsDynamicCodeSupported || type != typeof(T))
+            {
+                return (info, context) =>
+                    (T)constructor.Invoke(BindingFlags.DoNotWrapExceptions, null, new object[] { info, context }, null);
+            }
 
             var serializationInfoParam = Expression.Parameter(typeof(SerializationInfo), "info");
             var streamingContextParam = Expression.Parameter(typeof(StreamingContext), "context");

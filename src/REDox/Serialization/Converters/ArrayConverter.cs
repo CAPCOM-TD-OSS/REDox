@@ -99,7 +99,7 @@ sealed class ArrayConverter : DataConverterFactory
             return new SzArrayConverter<Guid>(settings);
         }
 
-        if (!settings.AllowDynamicGenericConverters)
+        if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
         {
             return new DefaultConverter(type, settings);
         }
@@ -184,7 +184,7 @@ sealed class ArrayConverter : DataConverterFactory
             var array = existingValue as Array;
             if (array == null || array.GetType() != _contract.Type)
             {
-                array = Array.CreateInstance(_elementType, count);
+                array = Array.CreateInstanceFromArrayType(_contract.Type, count);
             }
 
             var index = 0;
@@ -262,7 +262,7 @@ sealed class ArrayConverter : DataConverterFactory
                 valueId = elements.Current;
             }
 
-            var array = Array.CreateInstance(_elementType, lengths);
+            var array = Array.CreateInstanceFromArrayType(_contract.Type, lengths);
 
             ReadDimension(reader, tokenId, array, new int[_rank], 0);
 
@@ -700,7 +700,7 @@ sealed class ArrayConverter : DataConverterFactory
                 }
             }
 
-            var arr = Array.CreateInstance(typeof(U), lengths);
+            var arr = Array.CreateInstanceFromArrayType(_contract.Type, lengths);
 
             var iterator = new Document.ValueEnumerator[_arrayRank];
             var indices = new int[_arrayRank];

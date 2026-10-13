@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace REDox.Serialization.Converters;
@@ -34,9 +35,14 @@ public sealed class StringEnumConverter : DataConverterFactory
         return false;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2071",
+        Justification = "The application must preserve enum fields; enum types satisfy the struct constraint without an explicit parameterless constructor.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "The application must preserve public enum fields and their EnumMember attributes for runtime-supplied enum types.")]
     public override DataConverter CreateConverter(Type type, SerializerSettings settings)
     {
-        if (!settings.AllowDynamicGenericConverters)
+        // Native AOT must use the non-generic converter even if the setting is enabled.
+        if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
         {
             return new DefaultConverter(type, settings, NamingPolicy, AllowIntegerValues);
         }
@@ -72,7 +78,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         }
     }
 
-    private class SByteEnumConverter<T> : DataConverter<T> where T : struct
+    private class SByteEnumConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        T> : DataConverter<T> where T : struct
     {
         private readonly EnumConverterHelper _converter;
 
@@ -107,7 +115,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         }
     }
 
-    private sealed class Int16EnumConverter<T> : DataConverter<T> where T : struct
+    private sealed class Int16EnumConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        T> : DataConverter<T> where T : struct
     {
         private readonly EnumConverterHelper _converter;
 
@@ -142,7 +152,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         }
     }
 
-    private sealed class Int32EnumConverter<T> : DataConverter<T> where T : struct
+    private sealed class Int32EnumConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        T> : DataConverter<T> where T : struct
     {
         private readonly EnumConverterHelper _converter;
 
@@ -177,7 +189,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         }
     }
 
-    private sealed class Int64EnumConverter<T> : DataConverter<T> where T : struct
+    private sealed class Int64EnumConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        T> : DataConverter<T> where T : struct
     {
         private readonly EnumConverterHelper _converter;
 
@@ -212,7 +226,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         }
     }
 
-    private sealed class ByteEnumConverter<T> : DataConverter<T> where T : struct
+    private sealed class ByteEnumConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        T> : DataConverter<T> where T : struct
     {
         private readonly EnumConverterHelper _converter;
 
@@ -247,7 +263,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         }
     }
 
-    private sealed class UInt16EnumConverter<T> : DataConverter<T> where T : struct
+    private sealed class UInt16EnumConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        T> : DataConverter<T> where T : struct
     {
         private readonly EnumConverterHelper _converter;
 
@@ -282,7 +300,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         }
     }
 
-    private sealed class UInt32EnumConverter<T> : DataConverter<T> where T : struct
+    private sealed class UInt32EnumConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        T> : DataConverter<T> where T : struct
     {
         private readonly EnumConverterHelper _converter;
 
@@ -317,7 +337,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         }
     }
 
-    private sealed class UInt64EnumConverter<T> : DataConverter<T> where T : struct
+    private sealed class UInt64EnumConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        T> : DataConverter<T> where T : struct
     {
         private readonly EnumConverterHelper _converter;
 
@@ -358,7 +380,9 @@ public sealed class StringEnumConverter : DataConverterFactory
         private readonly bool _isULong;
         private readonly Type _type;
 
-        public DefaultConverter(Type type, SerializerSettings settings, NamingPolicy? policy, bool allowIntegerValues)
+        public DefaultConverter(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+            Type type, SerializerSettings settings, NamingPolicy? policy, bool allowIntegerValues)
         {
             _type = type;
             _converter = new EnumConverterHelper(type, policy, allowIntegerValues, settings);

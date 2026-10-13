@@ -4,6 +4,7 @@
         <PackageId>CAPCOM.$(AssemblyName)</PackageId>
         <PackageTags>$(PackageTags);json;json5;ndjson;serializer;serialization;parser;dom</PackageTags>
         <Description>Core + JSON + JSON5 + DOX + common serializer infrastructure</Description>
+        <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
     <ItemGroup>
         <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">

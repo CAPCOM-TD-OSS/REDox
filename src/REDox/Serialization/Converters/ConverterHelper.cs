@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.Serialization;
@@ -28,6 +29,12 @@ static class ConverterHelper
     public delegate void WriteDelegate<T>(DataWriter writer, DataConverter converter, T instance);
 
     public delegate void WriteRefDelegate<T>(DataWriter writer, DataConverter converter, ref T instance);
+
+    internal const string DynamicCode =
+        "This helper generates delegates or generic handlers for dynamic converters. Use the non-generic converter when dynamic code is unavailable.";
+
+    private const string ContractMetadata =
+        "The application must preserve reflection metadata for contract members, property types, and base types used by the converters.";
 
     private static readonly MethodInfo s_dataReaderIsNullMethod =
         typeof(DataReader).GetMethod(nameof(DataReader.IsNullToken))!;
@@ -56,7 +63,10 @@ static class ConverterHelper
         };
     }
 
-    public static DataConverter CreateConverter(Type converterType, SerializerSettings settings)
+    public static DataConverter CreateConverter(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        Type converterType,
+        SerializerSettings settings)
     {
         return (DataConverter)Activator.CreateInstance(converterType,
             BindingFlags.Instance | BindingFlags.Public,
@@ -65,7 +75,10 @@ static class ConverterHelper
             null)!;
     }
 
-    public static DataConverter CreateCollectionConverter(Type converterType, DataConverter? itemConverter,
+    public static DataConverter CreateCollectionConverter(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        Type converterType,
+        DataConverter? itemConverter,
         SerializerSettings settings)
     {
         return (DataConverter)Activator.CreateInstance(converterType,
@@ -75,7 +88,10 @@ static class ConverterHelper
             null)!;
     }
 
-    public static DataConverter CreateConverter(Type converterType, SerializerSettings settings,
+    public static DataConverter CreateConverter(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        Type converterType,
+        SerializerSettings settings,
         DataConverterFactory factory)
     {
         return (DataConverter)Activator.CreateInstance(converterType,
@@ -105,11 +121,15 @@ static class ConverterHelper
         return (DataConverter<T>)settings.GetConverter(typeof(T));
     }
 
-    public static DefaultConstructDelegate<T> CreateDefaultConstructFunction<T>()
+    [RequiresDynamicCode(DynamicCode)]
+    public static DefaultConstructDelegate<T> CreateDefaultConstructFunction<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        T>()
     {
         return Expression.Lambda<DefaultConstructDelegate<T>>(Expression.New(typeof(T))).Compile();
     }
 
+    [RequiresDynamicCode(DynamicCode)]
     public static ConstructDelegate<T> CreateConstructFunction<T>(ConstructorInfo ctor)
     {
         var reader = Expression.Parameter(typeof(DataReader).MakeByRefType(), "reader");
@@ -141,7 +161,10 @@ static class ConverterHelper
             .Compile();
     }
 
-    public static Func<U[], T> CreateReadOnlyCollectionFunction<T, U>()
+    [RequiresDynamicCode(DynamicCode)]
+    public static Func<U[], T> CreateReadOnlyCollectionFunction<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        T, U>()
     {
         var target = Expression.Parameter(typeof(U[]), "list");
         var ctor = typeof(T).GetConstructor(new[] { typeof(U[]) });
@@ -171,6 +194,10 @@ static class ConverterHelper
         throw new NotSupportedException();
     }
 
+    [RequiresDynamicCode(DynamicCode)]
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ContractMetadata)]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = ContractMetadata)]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(DataConverter<>))]
     public static TDelegate CreateReadDelegate<TDelegate, T>(DataProperty member, DataConverter dataConverter,
         bool existingValue)
     {
@@ -257,7 +284,9 @@ static class ConverterHelper
         return lambda.Compile();
     }
 
-    private static Expression CreateNotDefaultCondition(Expression value, Expression defaultVal, Type type,
+    private static Expression CreateNotDefaultCondition(Expression value, Expression defaultVal,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)]
+        Type type,
         Type? nullableType)
     {
         if (defaultVal.Type != type)
@@ -282,6 +311,8 @@ static class ConverterHelper
         return Expression.NotEqual(value, defaultVal);
     }
 
+    [RequiresDynamicCode(DynamicCode)]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = ContractMetadata)]
     public static TDelegate CreateWriteDelegate<TDelegate, T>(
         DataProperty member,
         DataConverter dataConverter,
@@ -496,6 +527,7 @@ static class ConverterHelper
         return lambda.Compile();
     }
 
+    [RequiresDynamicCode(DynamicCode)]
     public static StreamingEventDelegate<T> CreateStreamingEventDelegate<T>(MethodInfo methodInfo)
     {
         var target = Expression.Parameter(typeof(T), "target");
@@ -508,6 +540,7 @@ static class ConverterHelper
         return lambda.Compile();
     }
 
+    [RequiresDynamicCode(DynamicCode)]
     public static StreamingEventRefDelegate<T> CreateStreamingEventRefDelegate<T>(MethodInfo methodInfo)
     {
         var target = Expression.Parameter(typeof(T).MakeByRefType(), "target");
@@ -520,7 +553,12 @@ static class ConverterHelper
         return lambda.Compile();
     }
 
-    public static MethodInfo[] GetAnnotatedMethods<T>(Type type) where T : Attribute
+    // Callback discovery is also used by the reflection converter in Native AOT.
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ContractMetadata)]
+    public static MethodInfo[] GetAnnotatedMethods<T>(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods |
+                                    DynamicallyAccessedMemberTypes.NonPublicMethods)]
+        Type type) where T : Attribute
     {
         var declType = type;
         List<MethodInfo>? methodList = null;
@@ -656,6 +694,10 @@ static class ConverterHelper
 
         public DataProperty Info { get; }
 
+        [RequiresDynamicCode(DynamicCode)]
+        [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ContractMetadata)]
+        [UnconditionalSuppressMessage("Trimming", "IL2076", Justification = ContractMetadata)]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(ExtensionDataHandler<,,>))]
         public static ExtensionDataHandler<T>? Create(DataProperty? member, SerializerSettings settings)
         {
             if (member == null || member.PropertyType.IsValueType)
@@ -697,7 +739,10 @@ static class ConverterHelper
         public abstract void Write(DataWriter writer, T instance);
     }
 
-    private sealed class ExtensionDataHandler<T, TDictionary, TValue> : ExtensionDataHandler<T>
+    private sealed class ExtensionDataHandler<T,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        TDictionary,
+        TValue> : ExtensionDataHandler<T>
         where T : class
         where TDictionary : class, IDictionary<string, TValue>
     {
@@ -705,6 +750,7 @@ static class ConverterHelper
         private readonly Func<T, TDictionary?>? _getter;
         private readonly Action<T, TDictionary>? _setter;
 
+        [RequiresDynamicCode(DynamicCode)]
         public ExtensionDataHandler(DataProperty info, SerializerSettings settings) : base(info)
         {
             _converter = settings.GetConverter(typeof(TValue));

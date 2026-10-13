@@ -3,6 +3,7 @@
 
 using System;
 using System.Buffers.Text;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Serialization;
 
@@ -18,7 +19,10 @@ class EnumConverterHelper
     private readonly bool _isFlags;
     private readonly bool _isULong;
 
-    public EnumConverterHelper(Type type, NamingPolicy? namingPolicy, bool allowIntegerValues,
+    public EnumConverterHelper(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type,
+        NamingPolicy? namingPolicy, bool allowIntegerValues,
         SerializerSettings settings)
     {
         if (namingPolicy == null)
@@ -37,7 +41,7 @@ class EnumConverterHelper
             var member = new EnumMember();
 
             var fieldInfo = type.GetField(name,
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                BindingFlags.Static | BindingFlags.Public);
 
             if (fieldInfo != null)
             {

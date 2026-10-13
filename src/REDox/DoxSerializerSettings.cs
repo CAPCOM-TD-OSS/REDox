@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Serialization;
 using REDox.Serialization;
@@ -17,6 +18,12 @@ namespace REDox;
 
 public class DoxSerializerSettings : SerializerSettings
 {
+    // Runtime-supplied contract types must have their constructors, fields,
+    // properties, and callback/ShouldSerialize methods preserved by the application.
+    // This includes base, derived, and property types.
+    private const string ContractMetadata =
+        "The application must preserve reflection metadata for contract types, including base, derived, and property types.";
+
     private static readonly DataConverter[] DefaultConverters = new DataConverter[]
     {
         new SpanTypeConverter(),
@@ -44,6 +51,9 @@ public class DoxSerializerSettings : SerializerSettings
 
     public bool OverrideSpecifiedNames { get; init; }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = ContractMetadata)]
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ContractMetadata)]
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = ContractMetadata)]
     protected override DataContract ResolveContract(Type type)
     {
         var dataProps = new List<DataProperty>();
@@ -206,7 +216,10 @@ public class DoxSerializerSettings : SerializerSettings
         }
     }
 
-    private ConstructorInfo? GetConstructor(Type typeInfo)
+    private ConstructorInfo? GetConstructor(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors |
+                                    DynamicallyAccessedMemberTypes.NonPublicConstructors)]
+        Type typeInfo)
     {
         foreach (var ctor in typeInfo.GetConstructors(BindingFlags.Public | BindingFlags.Instance |
                                                       BindingFlags.NonPublic))
@@ -235,6 +248,7 @@ public class DoxSerializerSettings : SerializerSettings
         return null;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ContractMetadata)]
     private DataProperty? CreateDataProperty(MemberInfo info, int depth, bool bcontract, bool bserialize,
         NamingPolicy? namingPolicy)
     {

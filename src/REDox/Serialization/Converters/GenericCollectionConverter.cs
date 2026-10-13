@@ -8,14 +8,26 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using REDox.Serialization.Metadata;
 
 namespace REDox.Serialization.Converters;
 
 sealed class GenericCollectionConverter : DataCollectionConverterFactory
 {
+    // Reflection-based conversion requires the application to preserve collection
+    // constructors, population methods, properties, and implemented interfaces.
+    // Native AOT also requires concrete generic implementations and element arrays
+    // to be instantiated ahead of time. These requirements apply to derived types too.
+    private const string CollectionMetadata =
+        "The application must preserve reflection metadata for collection types, including derived types.";
+
+    private const string CollectionInstantiations =
+        "The application must root the concrete collection implementations and element array types used by the reflection fallback in Native AOT.";
+
     private static readonly Dictionary<Type, int> _convertTypes = new()
     {
         { typeof(List<>), 0 },
@@ -90,7 +102,9 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
 
     public bool IgnoreProducerConsumerCollectionInterface { get; init; }
 
-    private static Type? GetConvertType(Type type)
+    private static Type? GetConvertType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)]
+        Type type)
     {
         if (type.IsGenericType)
         {
@@ -123,11 +137,15 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         return infType;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = CollectionMetadata)]
     public override bool CanConvert(Type type)
     {
         return GetConvertType(type) != null;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = CollectionMetadata)]
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = CollectionMetadata)]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(KeyValuePairConverter<,>))]
     public override DataConverter CreateCollectionConverter(Type type, DataConverter? itemConverter,
         SerializerSettings settings)
     {
@@ -138,6 +156,11 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
 
             if (defType == typeof(KeyValuePair<,>))
             {
+                if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
+                {
+                    return new DefaultKeyValuePairConverter(type, args[0], args[1], settings);
+                }
+
                 return ConverterHelper.CreateConverter(
                     typeof(KeyValuePairConverter<,>).MakeGenericType(args[0], args[1]), settings);
             }
@@ -194,10 +217,20 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         throw new NotSupportedException();
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2055",
+        Justification = "The converter definitions are fixed in _sequenceConverters; collection constructors must be preserved by the application.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "The converter definitions are fixed in _sequenceConverters and their public constructors are explicitly preserved.")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(LinkListConverter<,>))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(ListConverter<,>))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(SetConverter<,>))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(ReadOnlyCollectionConverter<,>))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(ProducerConsumerCollectionConverter<,>))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(IEnumerableConverter<,>))]
     private static DataConverter CreateSequenceConverter(Type type, Type elementType, Type openConverterType,
         DataConverter? itemConverter, SerializerSettings settings)
     {
-        if (!settings.AllowDynamicGenericConverters)
+        if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
         {
             return new DefaultConverter(type, elementType, openConverterType, itemConverter, settings);
         }
@@ -206,10 +239,15 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             itemConverter, settings);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2055",
+        Justification = "The converter definitions are fixed in _dictionaryConverters; collection constructors must be preserved by the application.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = CollectionMetadata)]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(DictionaryConverter<,,>))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(ReadOnlyDictionaryConverter<,,>))]
     private static DataConverter CreateDictionaryConverter(Type type, Type keyType, Type valueType,
         Type openConverterType, DataConverter? itemConverter, SerializerSettings settings)
     {
-        if (!settings.AllowDynamicGenericConverters)
+        if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
         {
             return new DefaultDictionaryConverter(type, keyType, valueType, itemConverter, settings);
         }
@@ -373,8 +411,11 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         private DataConverter _keyConverter;
         private DataConverter _valueConverter;
 
-        public DefaultDictionaryConverter(Type type, Type keyType, Type valueType, DataConverter? itemConverter,
-            SerializerSettings settings)
+        public DefaultDictionaryConverter(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods |
+                                        DynamicallyAccessedMemberTypes.PublicProperties)]
+            Type type,
+            Type keyType, Type valueType, DataConverter? itemConverter, SerializerSettings settings)
         {
             _contract = settings.GetContract(type);
             _keyType = keyType;
@@ -445,6 +486,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return base.ResolvePropertyConverter(property, settings);
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = CollectionMetadata)]
         public override object? ReadObject(in DataReader reader, Type objectType, uint tokenId, object? existingValue)
         {
             var kind = reader.GetToken(tokenId).Kind;
@@ -585,44 +627,19 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             WriteData(writer, value, typeNeeded);
         }
 
-        private static (Type Key, Type Value) GetDictionaryArguments(Type type)
-        {
-            if (type.IsGenericType)
-            {
-                var definition = type.GetGenericTypeDefinition();
-                if (definition == typeof(Dictionary<,>) ||
-                    definition == typeof(SortedDictionary<,>) ||
-                    definition == typeof(SortedList<,>) ||
-                    definition == typeof(ConcurrentDictionary<,>) ||
-                    definition == typeof(IDictionary<,>))
-                {
-                    var args = type.GetGenericArguments();
-                    return (args[0], args[1]);
-                }
-            }
-
-            foreach (var inf in type.GetInterfaces())
-            {
-                if (inf.IsGenericType && inf.GetGenericTypeDefinition() == typeof(IDictionary<,>))
-                {
-                    var args = inf.GetGenericArguments();
-                    return (args[0], args[1]);
-                }
-            }
-
-            throw new NotSupportedException();
-        }
-
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = CollectionMetadata)]
         private object CreateDictionary()
         {
             return CreateDictionary(TargetType);
         }
 
-        private object CreateDictionary(Type type)
+        [UnconditionalSuppressMessage("AOT", "IL3050", Justification = CollectionInstantiations)]
+        private object CreateDictionary(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+            Type type)
         {
             if (type.IsInterface)
             {
-                //TODO: MakeGenericType used
                 var value = Activator.CreateInstance(typeof(Dictionary<,>).MakeGenericType(_keyType, _valueType));
 
                 if (value != null)
@@ -765,18 +782,27 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             throw new NotSupportedException();
         }
 
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties, typeof(KeyValuePair<,>))]
+        [UnconditionalSuppressMessage("Trimming", "IL2075",
+            Justification = "Generic dictionary entries are KeyValuePair<,>; their public properties are explicitly preserved.")]
         private object? GetKey(object entry)
         {
             return entry.GetType().GetProperty("Key")!.GetValue(entry);
         }
 
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties, typeof(KeyValuePair<,>))]
+        [UnconditionalSuppressMessage("Trimming", "IL2075",
+            Justification = "Generic dictionary entries are KeyValuePair<,>; their public properties are explicitly preserved.")]
         private object? GetValue(object entry)
         {
             return entry.GetType().GetProperty("Value")!.GetValue(entry);
         }
     }
 
-    private class DictionaryConverter<T, U, V> : DataConverter<T> where T : IDictionary<U, V?> where U : notnull
+    private class DictionaryConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        T, U, V> : DataConverter<T>
+        where T : IDictionary<U, V?> where U : notnull
     {
         private readonly DataContract _contract;
         private readonly DictionaryFormatHandling _dictionaryFormat;
@@ -859,6 +885,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return base.ResolvePropertyConverter(property, settings);
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = CollectionMetadata)]
         public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
         {
             var kind = reader.GetToken(tokenId).Kind;
@@ -1170,6 +1197,94 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
+    private sealed class DefaultKeyValuePairConverter : DataConverter
+    {
+        private readonly ConstructorInfo _constructor;
+        private readonly object? _defaultKey;
+        private readonly object? _defaultValue;
+        private readonly bool _ignoreReadOnlyProperties;
+        private readonly DataConverter _keyConverter;
+        private readonly Utf8Symbol _keyId;
+        private readonly PropertyInfo _keyProperty;
+        private readonly Type _keyType;
+        private readonly DataConverter _valueConverter;
+        private readonly Utf8Symbol _valueId;
+        private readonly PropertyInfo _valueProperty;
+        private readonly Type _valueType;
+
+        public DefaultKeyValuePairConverter(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors |
+                                        DynamicallyAccessedMemberTypes.PublicProperties)]
+            Type type,
+            Type keyType, Type valueType, SerializerSettings settings)
+        {
+            TargetType = type;
+            _keyType = keyType;
+            _valueType = valueType;
+            _keyConverter = settings.GetConverter(keyType);
+            _valueConverter = settings.GetConverter(valueType);
+            _keyProperty = type.GetProperty("Key")!;
+            _valueProperty = type.GetProperty("Value")!;
+            _constructor = type.GetConstructor(new[] { keyType, valueType })!;
+            var defaultPair = Activator.CreateInstance(type);
+            _defaultKey = _keyProperty.GetValue(defaultPair);
+            _defaultValue = _valueProperty.GetValue(defaultPair);
+            _keyId = settings.PropertyNamingPolicy == null
+                ? Utf8Helper.KeyLiteral
+                : new Utf8Symbol(settings.PropertyNamingPolicy.ConvertName("Key"));
+            _valueId = settings.PropertyNamingPolicy == null
+                ? Utf8Helper.ValueLiteral
+                : new Utf8Symbol(settings.PropertyNamingPolicy.ConvertName("Value"));
+            _ignoreReadOnlyProperties = settings.IgnoreReadOnlyProperties;
+        }
+
+        protected internal override Type TargetType { get; }
+
+        public override void WriteObjectAsPropertyName(DataWriter writer, object? value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override object ReadObjectAsPropertyName(in DataReader reader, uint tokenId)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override object ReadObject(in DataReader reader, Type objectType, uint tokenId, object? existingValue)
+        {
+            var key = _defaultKey;
+            var value = _defaultValue;
+            foreach (var kv in reader.EnumerateMap(tokenId))
+            {
+                var name = reader.ReadUtf8String(kv.Key);
+                if (name.SequenceEqual(_keyId))
+                {
+                    key = _keyConverter.ReadObject(in reader, _keyType, kv.Value, _defaultKey);
+                }
+                else if (name.SequenceEqual(_valueId))
+                {
+                    value = _valueConverter.ReadObject(in reader, _valueType, kv.Value, _defaultValue);
+                }
+            }
+
+            return _constructor.Invoke(new[] { key, value });
+        }
+
+        public override void WriteObject(DataWriter writer, Type objectType, object? value)
+        {
+            writer.WriteStartMap(_ignoreReadOnlyProperties ? 0 : 2);
+            if (!_ignoreReadOnlyProperties)
+            {
+                writer.WriteString(_keyId);
+                _keyConverter.WriteObject(writer, _keyType, _keyProperty.GetValue(value));
+                writer.WriteString(_valueId);
+                _valueConverter.WriteObject(writer, _valueType, _valueProperty.GetValue(value));
+            }
+
+            writer.WriteEndMap();
+        }
+    }
+
     private class KeyValuePairConverter<U, V> : DataConverter<KeyValuePair<U?, V?>>
     {
         private readonly DataConverter<U> _KeyConverter;
@@ -1320,7 +1435,10 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         protected abstract T? ReadItems(in DataReader reader, uint tokenId, T? existingValue);
     }
 
-    private class ListConverter<T, U> : CollectionReadConverter<T, U> where T : ICollection<U?>
+    private class ListConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        T, U> : CollectionReadConverter<T, U>
+        where T : ICollection<U?>
     {
         private readonly Func<int, T>? _generator;
         private readonly bool _szArray;
@@ -1431,7 +1549,10 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class SetConverter<T, U> : CollectionReadConverter<T, U> where T : ISet<U?>
+    private class SetConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        T, U>
+        : CollectionReadConverter<T, U> where T : ISet<U?>
     {
         private readonly Func<T>? _Generator;
 
@@ -1504,7 +1625,10 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class LinkListConverter<T, U> : CollectionReadConverter<T, U> where T : LinkedList<U?>
+    private class LinkListConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        T, U>
+        : CollectionReadConverter<T, U> where T : LinkedList<U?>
     {
         private readonly Func<T> _Generator;
 
@@ -1546,7 +1670,10 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class ReadOnlyCollectionConverter<T, U> : CollectionReadConverter<T, U> where T : IReadOnlyCollection<U>
+    private class ReadOnlyCollectionConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        T, U> : CollectionReadConverter<T, U>
+        where T : IReadOnlyCollection<U>
     {
         private readonly Func<U?[], T> _factory;
         private readonly bool _includeDerived;
@@ -1617,7 +1744,9 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
         }
     }
 
-    private class ProducerConsumerCollectionConverter<T, U> : CollectionReadConverter<T, U>
+    private class ProducerConsumerCollectionConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        T, U> : CollectionReadConverter<T, U>
         where T : IProducerConsumerCollection<U?>
     {
         private readonly Func<U?[], T> _factory;
@@ -1928,6 +2057,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return ReadItems(reader, objectType, tokenId, existingValue);
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = CollectionMetadata)]
         private object? ReadItems(DataReader reader, Type objectType, uint tokenId, object? existingValue)
         {
             if (_kind != CollectionKind.Mutable)
@@ -1965,6 +2095,8 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
                    ?? throw new NotSupportedException($"Collection type '{collectionType}' cannot be created.");
         }
 
+        [UnconditionalSuppressMessage("AOT", "IL3050", Justification = CollectionInstantiations)]
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = CollectionMetadata)]
         private object? ReadImmutable(in DataReader reader, Type objectType, uint tokenId)
         {
             var array = ReadArray(reader, tokenId);
@@ -2100,6 +2232,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return GetDefaultImplementation(TargetType);
         }
 
+        [UnconditionalSuppressMessage("AOT", "IL3050", Justification = CollectionInstantiations)]
         private static Type GetDefaultImplementation(Type type)
         {
             if (!type.IsInterface)
@@ -2110,7 +2243,11 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             if (type.IsGenericType &&
                 _interfaceDefaults.TryGetValue(type.GetGenericTypeDefinition(), out var definition))
             {
-                return definition.MakeGenericType(type.GetGenericArguments());
+                // Keep the generic definitions visible to the trimmer so their
+                // constructors can be preserved for the reflection fallback.
+                return definition == typeof(HashSet<>)
+                    ? typeof(HashSet<>).MakeGenericType(type.GetGenericArguments())
+                    : typeof(List<>).MakeGenericType(type.GetGenericArguments());
             }
 
             if (type == typeof(IList) || type == typeof(ICollection) || type == typeof(IEnumerable))
@@ -2121,7 +2258,9 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return type;
         }
 
-        private static object? TryCreateDefault(Type type)
+        private static object? TryCreateDefault(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+            Type type)
         {
             if (type.IsInterface || type.IsAbstract)
             {
@@ -2136,7 +2275,9 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return Activator.CreateInstance(type);
         }
 
-        private object? TryCreateFromArray(Type type, Array array)
+        private object? TryCreateFromArray(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+            Type type, Array array)
         {
             if (type.IsInterface || type.IsAbstract)
             {
@@ -2156,6 +2297,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return null;
         }
 
+        [UnconditionalSuppressMessage("AOT", "IL3050", Justification = CollectionInstantiations)]
         private Array ReadArray(in DataReader reader, uint tokenId)
         {
             var values = new List<object?>(reader.GetValueCount(tokenId));
@@ -2202,6 +2344,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             }
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = CollectionMetadata)]
         private Action<object?> GetAddAction(object collection)
         {
             if (collection is IList list && !list.IsFixedSize && !list.IsReadOnly)
@@ -2216,7 +2359,11 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return value => addMethod.Invoke(collection, new[] { value });
         }
 
-        private MethodInfo? FindAddMethod(Type type)
+        [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = CollectionMetadata)]
+        private MethodInfo? FindAddMethod(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods |
+                                        DynamicallyAccessedMemberTypes.Interfaces)]
+            Type type)
         {
             var parameterTypes = new[] { _elementType };
             foreach (var methodName in new[] { "Add", "AddLast", "Enqueue", "Push", "TryAdd" })
@@ -2252,6 +2399,7 @@ sealed class GenericCollectionConverter : DataCollectionConverterFactory
             return null;
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = CollectionMetadata)]
         private static int GetCount(IEnumerable value)
         {
             if (value is ICollection collection)

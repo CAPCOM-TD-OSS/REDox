@@ -3,8 +3,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using REDox.Serialization.Metadata;
 
 namespace REDox.Serialization.Converters;
@@ -16,9 +18,16 @@ sealed class ValueTypeConverter : DataConverterFactory
         return type.IsValueType;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "The application must preserve reflection metadata for value types and their property types used by the non-generic converter.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055",
+        Justification = "NullableTypeConverter<> is instantiated only with the non-nullable underlying value type; its public constructor is explicitly preserved.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2071",
+        Justification = "The generic converters are only instantiated for non-nullable value types, which do not require an explicit parameterless constructor to satisfy the struct constraint.")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(NullableTypeConverter<>))]
     public override DataConverter CreateConverter(Type type, SerializerSettings settings)
     {
-        if (!settings.AllowDynamicGenericConverters)
+        if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
         {
             return new DefaultConverter(type, settings);
         }
@@ -79,6 +88,7 @@ sealed class ValueTypeConverter : DataConverterFactory
         private ConverterHelper.StreamingEventRefDelegate<T>? _onSerialized;
         private ConverterHelper.StreamingEventRefDelegate<T>? _onSerializing;
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         public StructConverter(SerializerSettings settings)
         {
             var typeInfo = typeof(T);
@@ -551,6 +561,7 @@ sealed class ValueTypeConverter : DataConverterFactory
             return null;
         }
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         private void InitCallBackMethod(DataContract contract)
         {
             foreach (var method in contract.OnSerializingCallbacks)
@@ -574,6 +585,7 @@ sealed class ValueTypeConverter : DataConverterFactory
             }
         }
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         private void InitConstructor(SerializerSettings settings, DataContract contract)
         {
             var ctor = contract.Constructor;
@@ -649,7 +661,10 @@ sealed class ValueTypeConverter : DataConverterFactory
         private readonly DataConverter _converter;
         private readonly Type? _nullableType;
 
-        public DefaultConverter(Type type, SerializerSettings settings)
+        public DefaultConverter(
+            [DynamicallyAccessedMembers(ClassTypeConverter.ReflectionTypeMembers)]
+            Type type,
+            SerializerSettings settings)
         {
             _contract = settings.GetContract(type);
             _nullableType = Nullable.GetUnderlyingType(type);

@@ -4,8 +4,10 @@
 using System;
 using System.Buffers.Text;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using REDox.Serialization.Metadata;
 
@@ -231,12 +233,12 @@ sealed class BuiltInTypeConverter : DataConverterFactory
 
         if (type.IsAssignableTo(typeof(Type)))
         {
-            return ConverterHelper.CreateConverter(typeof(TypeConverter<>).MakeGenericType(type), settings);
+            return CreateTypeConverter(type, settings);
         }
 
         if (type.IsAssignableTo(typeof(MemberInfo)))
         {
-            return ConverterHelper.CreateConverter(typeof(MemberInfoConverter<>).MakeGenericType(type), settings);
+            return CreateMemberInfoConverter(type, settings);
         }
 
         if (type == typeof(DBNull))
@@ -301,6 +303,47 @@ sealed class BuiltInTypeConverter : DataConverterFactory
         }
 
         throw new NotSupportedException($"The type {type} is not supported.");
+    }
+
+    private static DataConverter CreateTypeConverter(Type type, SerializerSettings settings)
+    {
+        if (type != typeof(Type) && RuntimeFeature.IsDynamicCodeSupported && settings.AllowDynamicGenericConverters)
+        {
+            return CreateDynamicTypeConverter(type, settings);
+        }
+
+        // System.Type is always instantiated statically. Without dynamic code, derived types
+        // (e.g. RuntimeType) share this converter, because every value is a System.Type.
+        return new TypeConverter<Type>(settings);
+    }
+
+    private static DataConverter CreateMemberInfoConverter(Type type, SerializerSettings settings)
+    {
+        if (type != typeof(MemberInfo) && RuntimeFeature.IsDynamicCodeSupported &&
+            settings.AllowDynamicGenericConverters)
+        {
+            return CreateDynamicMemberInfoConverter(type, settings);
+        }
+
+        return new MemberInfoConverter<MemberInfo>(settings);
+    }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2055",
+        Justification = "TypeConverter<> has no trimming requirements on its type argument; its public constructor is preserved.")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(TypeConverter<>))]
+    [RequiresDynamicCode(ConverterHelper.DynamicCode)]
+    private static DataConverter CreateDynamicTypeConverter(Type type, SerializerSettings settings)
+    {
+        return ConverterHelper.CreateConverter(typeof(TypeConverter<>).MakeGenericType(type), settings);
+    }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2055",
+        Justification = "MemberInfoConverter<> has no trimming requirements on its type argument; its public constructor is preserved.")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(MemberInfoConverter<>))]
+    [RequiresDynamicCode(ConverterHelper.DynamicCode)]
+    private static DataConverter CreateDynamicMemberInfoConverter(Type type, SerializerSettings settings)
+    {
+        return ConverterHelper.CreateConverter(typeof(MemberInfoConverter<>).MakeGenericType(type), settings);
     }
 
 
@@ -1785,6 +1828,8 @@ sealed class BuiltInTypeConverter : DataConverterFactory
         {
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2057",
+            Justification = "Type names come from serialized data; the application must preserve the types it deserializes.")]
         public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
         {
             var name = reader.ReadString(tokenId);

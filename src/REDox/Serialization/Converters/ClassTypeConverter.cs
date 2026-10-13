@@ -4,6 +4,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -14,6 +15,16 @@ namespace REDox.Serialization.Converters;
 
 sealed class ClassTypeConverter : DataConverterFactory
 {
+    // Applications must preserve contract members, callbacks, and constructors
+    // for runtime-supplied types, including property types and derived types.
+    internal const DynamicallyAccessedMemberTypes ReflectionTypeMembers =
+        DynamicallyAccessedMemberTypes.PublicConstructors |
+        DynamicallyAccessedMemberTypes.NonPublicConstructors |
+        DynamicallyAccessedMemberTypes.PublicMethods;
+
+    private const string ContractMetadata =
+        "The application must preserve reflection metadata for contract types and their property and derived types.";
+
     public override bool CanConvert(Type type)
     {
         if (type.ContainsGenericParameters)
@@ -24,9 +35,11 @@ sealed class ClassTypeConverter : DataConverterFactory
         return true;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = ContractMetadata)]
+    [UnconditionalSuppressMessage("Trimming", "IL2071", Justification = ContractMetadata)]
     public override DataConverter CreateConverter(Type type, SerializerSettings settings)
     {
-        if (!settings.AllowDynamicGenericConverters)
+        if (!RuntimeFeature.IsDynamicCodeSupported || !settings.AllowDynamicGenericConverters)
         {
             return new DefaultConverter(type, settings);
         }
@@ -34,7 +47,11 @@ sealed class ClassTypeConverter : DataConverterFactory
         return ConverterHelper.CreateConverter(typeof(ClassConverter<>).MakeGenericType(type), settings);
     }
 
-    private class ClassConverter<T> : DataConverter<T> where T : class
+    private class ClassConverter<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors |
+                                    DynamicallyAccessedMemberTypes.NonPublicConstructors)]
+        T> : DataConverter<T>
+        where T : class
     {
         private readonly bool _anonymousType;
         private readonly DataContract _contract;
@@ -57,6 +74,7 @@ sealed class ClassTypeConverter : DataConverterFactory
 
         private ulong[]? _requiredMask;
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         public ClassConverter(SerializerSettings settings)
         {
             _anonymousType = typeof(T).IsGenericType &&
@@ -754,6 +772,7 @@ sealed class ClassTypeConverter : DataConverterFactory
             return null;
         }
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         public void InitCallBackMethod(DataContract contract)
         {
             foreach (var method in contract.OnSerializingCallbacks)
@@ -777,6 +796,7 @@ sealed class ClassTypeConverter : DataConverterFactory
             }
         }
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         private void InitConstructor(SerializerSettings settings, DataContract contract)
         {
             var ctor = contract.Constructor;
@@ -828,6 +848,7 @@ sealed class ClassTypeConverter : DataConverterFactory
             }
         }
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         private Property InitProperty(DataProperty member, SerializerSettings settings)
         {
             var converter = member.Converter;
@@ -905,6 +926,7 @@ sealed class ClassTypeConverter : DataConverterFactory
             return sp;
         }
 
+        [RequiresDynamicCode(ConverterHelper.DynamicCode)]
         private void InitProperties(SerializerSettings settings, DataContract contract)
         {
             var ignoreCase = settings.PropertyNameCaseInsensitive;
@@ -1036,7 +1058,10 @@ sealed class ClassTypeConverter : DataConverterFactory
         private readonly Type? _extensionDataValueType;
         private readonly Property[] _lookupTable;
         private readonly ulong[]? _requiredMask;
+
+        [DynamicallyAccessedMembers(ReflectionTypeMembers)]
         private readonly Type _type;
+
         private readonly bool _typedReference;
         private readonly bool _valueType;
         private ConstructorInfo? _constructor;
@@ -1044,7 +1069,14 @@ sealed class ClassTypeConverter : DataConverterFactory
         private bool _isReference;
         private DataProperty? _property;
 
-        public DefaultConverter(Type type, SerializerSettings settings)
+        [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ContractMetadata)]
+        [UnconditionalSuppressMessage("Trimming", "IL2065",
+            Justification = "The entry type inherited by IDictionary<string, TValue> is KeyValuePair<string, TValue>; its public properties are explicitly preserved.")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties, typeof(IDictionary<,>))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties, typeof(KeyValuePair<,>))]
+        public DefaultConverter(
+            [DynamicallyAccessedMembers(ReflectionTypeMembers)]
+            Type type, SerializerSettings settings)
         {
             _type = type;
             _valueType = type.IsValueType;
@@ -1090,7 +1122,12 @@ sealed class ClassTypeConverter : DataConverterFactory
                         iface.GetGenericArguments()[0] == typeof(string))
                     {
                         var valueType = iface.GetGenericArguments()[1];
-                        var pairType = typeof(KeyValuePair<,>).MakeGenericType(typeof(string), valueType);
+                        // IDictionary<string, TValue> already exposes its closed
+                        // KeyValuePair type through IEnumerable<KeyValuePair<string, TValue>>.
+                        var pairType = Array.Find(iface.GetInterfaces(), static candidate =>
+                                candidate.IsGenericType &&
+                                candidate.GetGenericTypeDefinition() == typeof(IEnumerable<>))!
+                            .GetGenericArguments()[0];
 
                         _extensionData = extensionData;
                         _extensionDataValueType = valueType;
@@ -1493,6 +1530,9 @@ sealed class ClassTypeConverter : DataConverterFactory
             }
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = ContractMetadata)]
+        [UnconditionalSuppressMessage("AOT", "IL3050",
+            Justification = "The application must root Dictionary<string, TValue> for extension data properties that require a default implementation in Native AOT.")]
         private void ReadExtensionData(in DataReader reader, object instance, uint keyId, uint valueId)
         {
             var info = _extensionData!;
@@ -1747,6 +1787,7 @@ sealed class ClassTypeConverter : DataConverterFactory
             return null;
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = ContractMetadata)]
         private object CreateParameterizedInstance(in DataReader reader, uint[] tokens)
         {
             var parameters = _constructor!.GetParameters();
@@ -1783,6 +1824,7 @@ sealed class ClassTypeConverter : DataConverterFactory
             }
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = ContractMetadata)]
         private static void ReadProperty(in DataReader reader, Property prop, object? instance, uint tokenId)
         {
             var info = prop.Info!;
@@ -1950,6 +1992,7 @@ sealed class ClassTypeConverter : DataConverterFactory
             return info.IsStatic ? null : instance;
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = ContractMetadata)]
         private static object? GetDefaultValue(DataProperty info)
         {
             if (info.DefaultValue != null)
@@ -1960,7 +2003,9 @@ sealed class ClassTypeConverter : DataConverterFactory
             return GetDefaultValue(info.PropertyType);
         }
 
-        private static object? GetDefaultValue(Type type)
+        private static object? GetDefaultValue(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+            Type type)
         {
             return type.IsValueType && Nullable.GetUnderlyingType(type) == null ? Activator.CreateInstance(type) : null;
         }

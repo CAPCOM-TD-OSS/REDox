@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using REDox.Json;
 
 namespace REDox.Serialization.Converters;
@@ -18,6 +20,13 @@ sealed class DoxTypeConverter : DataConverterFactory
         return false;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2055",
+        Justification = "DoxNodeConverter<> is instantiated only for IDoxNode implementations; its parameterless constructor is explicitly preserved.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2071",
+        Justification = "DoxNodeConverter<> is instantiated only for IDoxNode implementations; its parameterless constructor is explicitly preserved.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "The generic instantiation is guarded by RuntimeFeature.IsDynamicCodeSupported and AllowDynamicGenericConverters.")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor, typeof(DoxNodeConverter<>))]
     public override DataConverter CreateConverter(Type type, SerializerSettings settings)
     {
         if (type == typeof(DElement))
@@ -45,16 +54,30 @@ sealed class DoxTypeConverter : DataConverterFactory
             return new ArrayElementConverter();
         }
 
-        if (type.IsAssignableTo(typeof(IDoxNode)))
+        if (type == typeof(IDoxNode))
+        {
+            // Statically instantiated so that it works with NativeAOT and trimming.
+            return new DoxNodeConverter<IDoxNode>();
+        }
+
+        if (type.IsAssignableTo(typeof(IDoxNode)) &&
+            RuntimeFeature.IsDynamicCodeSupported && settings.AllowDynamicGenericConverters)
         {
             return (DataConverter)Activator.CreateInstance(typeof(DoxNodeConverter<>).MakeGenericType(type))!;
         }
 
-        throw new NotSupportedException();
+        throw new NotSupportedException(
+            $"The type '{type}' cannot be converted because dynamic code is unavailable. " +
+            "Use DElement, DValue, DObject, DMap, DArray or IDoxNode.");
     }
 
     private static void WriteElement(DataWriter writer, DElement value)
     {
+        if (!value.IsValid)
+        {
+            throw new ObjectDisposedException(nameof(DElement));
+        }
+
         var requiresStringKeys = writer.RequiresStringKeys;
 
         var tokenId = value.Id;
@@ -128,7 +151,10 @@ sealed class DoxTypeConverter : DataConverterFactory
 
                             while (source.GetToken(tokenId).IsIgnore)
                             {
-                                tokenId++;
+                                var ignored = source.GetToken(tokenId);
+                                tokenId = ignored.Kind == DTokenKind.Control && !ignored.IsExtended && ignored.JumpId != 0
+                                    ? ignored.JumpId
+                                    : tokenId + 1;
                             }
 
                             latestId = source.NextToken(tokenId);
@@ -247,7 +273,10 @@ sealed class DoxTypeConverter : DataConverterFactory
                                 tokenId = latestId;
                                 while (source.GetToken(tokenId).IsIgnore)
                                 {
-                                    tokenId++;
+                                    var ignored = source.GetToken(tokenId);
+                                    tokenId = ignored.Kind == DTokenKind.Control && !ignored.IsExtended && ignored.JumpId != 0
+                                        ? ignored.JumpId
+                                        : tokenId + 1;
                                 }
 
                                 latestId = source.NextToken(tokenId);
@@ -265,7 +294,10 @@ sealed class DoxTypeConverter : DataConverterFactory
                                 tokenId = latestId;
                                 while (source.GetToken(tokenId).IsIgnore)
                                 {
-                                    tokenId++;
+                                    var ignored = source.GetToken(tokenId);
+                                    tokenId = ignored.Kind == DTokenKind.Control && !ignored.IsExtended && ignored.JumpId != 0
+                                        ? ignored.JumpId
+                                        : tokenId + 1;
                                 }
 
                                 latestId = source.NextToken(tokenId);
@@ -384,7 +416,7 @@ sealed class DoxTypeConverter : DataConverterFactory
         }
     }
 
-    private class DoxNodeConverter<T> : DataConverter<T> where T : IDoxNode
+    private sealed class DoxNodeConverter<T> : DataConverter<T> where T : IDoxNode
     {
         public override T? Read(in DataReader reader, uint tokenId, T? existingValue)
         {

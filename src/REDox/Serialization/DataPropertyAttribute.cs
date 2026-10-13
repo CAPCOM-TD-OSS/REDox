@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace REDox.Serialization;
 
@@ -49,9 +50,11 @@ public class DataPropertyAttribute : DataAttribute
         set => _objectCreation = value;
     }
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
     public Type? ItemConverterType { get; set; }
 
     public object[]? ItemConverterParameters { get; set; }
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
     public Type? NamingPolicyType { get; set; }
 }
