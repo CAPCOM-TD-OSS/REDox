@@ -33,7 +33,14 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public DTriviaCollection LeadingTrivia => new(AsElement());
 
-    private bool IsNull => GetToken().Kind == DTokenKind.Null;
+    private bool IsNull
+    {
+        get
+        {
+            ThrowIfInvalid();
+            return GetToken().Kind == DTokenKind.Null;
+        }
+    }
 
     static DValue()
     {
@@ -440,6 +447,16 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static DValue Create(object? value)
     {
+        if (value is DValue doxValue)
+        {
+            return doxValue;
+        }
+
+        if (value is DElement element)
+        {
+            return Create(element);
+        }
+
         if (value == null)
         {
             return Null;
@@ -453,6 +470,8 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public DElement AsElement()
     {
+        ThrowIfInvalid();
+
         if (Instance is Document doc)
         {
             return new DElement(doc, (uint)Payload);
@@ -612,7 +631,11 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
             if (Instance is Document doc)
             {
-                return doc.Version == (int)(Payload >> 32);
+                var id = (uint)Payload;
+
+                // Root values continue to reference the current root after descendant edits.
+                return id != 0 && doc.IsValid &&
+                       (doc.Version == (int)(Payload >> 32) || id == doc.RootId);
             }
 
             if (Instance == null && Payload == 0)
@@ -627,6 +650,8 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private (Document?, uint) GetElementInfo()
     {
+        ThrowIfInvalid();
+
         if (Instance is DContainer container)
         {
             return (container.Document, (uint)Payload);
@@ -880,6 +905,8 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public DContainer AsContainer()
     {
+        ThrowIfInvalid();
+
         if (Instance is DContainer container)
         {
             return container.Document.GetElementContainer((uint)Payload);
@@ -895,6 +922,8 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public DObject AsObject()
     {
+        ThrowIfInvalid();
+
         if (Instance is DContainer container)
         {
             return container.Document.GetElementObject((uint)Payload);
@@ -910,6 +939,8 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public DMap AsMap()
     {
+        ThrowIfInvalid();
+
         if (Instance is DContainer container)
         {
             return container.Document.GetElementMap((uint)Payload);
@@ -925,6 +956,8 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public DArray AsArray()
     {
+        ThrowIfInvalid();
+
         if (Instance is DContainer container)
         {
             return container.Document.GetElementArray((uint)Payload);
@@ -1797,11 +1830,12 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
             return ((DObject)container).DeepClone().AsValue();
         }
 
-        return new DValue
+        if (Instance is Document or DContainer)
         {
-            Payload = Payload,
-            Instance = Instance
-        };
+            return AsElement().Clone().AsValue();
+        }
+
+        return this;
     }
 
     public DValue ReplaceWith<T>(T value)

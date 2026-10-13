@@ -4,7 +4,6 @@
 using System;
 using System.Buffers;
 using System.Buffers.Text;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -18,15 +17,40 @@ public abstract partial class Document
     private uint _emptyExtendId;
     private uint _emptyTokenId;
     private int _extendCount;
+
     private object?[] _extends = [];
+
+    // Slot 0 of the table is unused by token ids and holds the _tokenPt the table was built for (0 = invalid).
     private uint[]? _parentTable;
-    private int _parentVersion;
     private int _tokenPt;
     private DToken[] _tokens;
 
+    // Bit 0 holds the IsPooled flag; the remaining bits hold the version counter (incremented by 2).
+
     internal int Version { get; private set; }
 
-    public bool IsPooled { get; private set; }
+    protected bool IsPooled
+    {
+        get => (Version & 1) != 0;
+        private set => Version = value ? Version | 1 : Version & ~1;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void IncrementVersion()
+    {
+        Version += 2;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void InvalidateParentTable()
+    {
+        var table = _parentTable;
+
+        if (table != null)
+        {
+            table[0] = 0;
+        }
+    }
 
     private void ExpandTokens(int capacity)
     {
@@ -49,7 +73,7 @@ public abstract partial class Document
 
                 if (tokens.Length > 1)
                 {
-                    tokens.AsSpan().Slice(0, _tokenPt - 1).CopyTo(_tokens);
+                    tokens.AsSpan().Slice(0, _tokenPt).CopyTo(_tokens);
                     ArrayPool<DToken>.Shared.Return(tokens);
                 }
 
@@ -66,7 +90,7 @@ public abstract partial class Document
             var tokenId = _emptyTokenId;
 
             _emptyTokenId = _tokens[tokenId].EmptyId;
-            _parentVersion = 0;
+            InvalidateParentTable();
 
             _tokens[tokenId] = token;
 
@@ -192,8 +216,16 @@ public abstract partial class Document
                     parentTable[kv.Key] = tokenId;
                     parentTable[kv.Value] = tokenId;
 
-                    stack.Push(kv.Key);
-                    stack.Push(kv.Value);
+                    // Scalars already have their parent recorded; only containers need traversal.
+                    if (GetToken(kv.Key).IsContainer)
+                    {
+                        stack.Push(kv.Key);
+                    }
+
+                    if (GetToken(kv.Value).IsContainer)
+                    {
+                        stack.Push(kv.Value);
+                    }
                 }
             }
             else
@@ -202,7 +234,10 @@ public abstract partial class Document
                 {
                     parentTable[v] = tokenId;
 
-                    stack.Push(v);
+                    if (GetToken(v).IsContainer)
+                    {
+                        stack.Push(v);
+                    }
                 }
             }
         }
@@ -210,7 +245,12 @@ public abstract partial class Document
 
     internal uint GetParentId(uint tokenId)
     {
-        if (_parentTable == null || _parentVersion != _tokenPt)
+        if (tokenId == RootId || tokenId == 0)
+        {
+            return 0;
+        }
+
+        if (_parentTable == null || _parentTable[0] != (uint)_tokenPt)
         {
             if (_parentTable == null || _parentTable.Length < _tokenPt)
             {
@@ -231,7 +271,7 @@ public abstract partial class Document
 
             _parentTable.AsSpan(0, _tokenPt).Clear();
             BuildParentTable(_parentTable, RootElement.Id);
-            _parentVersion = _tokenPt;
+            _parentTable[0] = (uint)_tokenPt;
         }
 
         return _parentTable[tokenId];
@@ -265,12 +305,23 @@ public abstract partial class Document
             map.AddKeyValuePairInternal(kv.Key, kv.Value);
         }
 
-        var extendId = AllocExtendId();
-
-        _extends[extendId] = map;
-        _tokens[tokenId] = DToken.MakeExtendContainer(DTokenType.Map, extendId, token.LinkId);
+        RegisterParsedContainer(token, tokenId, map);
 
         return map;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void RegisterParsedContainer(DToken token, uint tokenId, DContainer container)
+    {
+        if (GetLeadingTrivia(tokenId) != 0)
+        {
+            container.TriviaId = CreateLeadingTrivia(tokenId);
+        }
+
+        var extendId = AllocExtendId();
+
+        _extends[extendId] = container;
+        _tokens[tokenId] = DToken.MakeExtendContainer(token.Type, extendId, token.LinkId);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -312,17 +363,25 @@ public abstract partial class Document
             obj.AddKeyValuePairInternal(kv.Key, kv.Value);
         }
 
-        var extendId = AllocExtendId();
-
-        _extends[extendId] = obj;
-        _tokens[tokenId] = DToken.MakeExtendContainer(DTokenType.Map, extendId, token.LinkId);
+        RegisterParsedContainer(token, tokenId, obj);
 
         return obj;
     }
 
-    internal List<uint> GetElementTriviaList(uint tokenId)
+    internal void EnsureElementTriviaList(uint tokenId)
+    {
+        GetElementTriviaList(tokenId);
+    }
+
+    private TriviaList GetElementTriviaList(uint tokenId)
     {
         var token = GetToken(tokenId);
+
+        if (token.IsContainer && !token.IsExtended)
+        {
+            GetElementContainer(tokenId);
+            token = GetToken(tokenId);
+        }
 
         var triviaId = GetLeadingTrivia(tokenId);
 
@@ -478,7 +537,7 @@ public abstract partial class Document
             }
         }
 
-        return (List<uint>)_extends[triviaId]!;
+        return (TriviaList)_extends[triviaId]!;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -544,10 +603,7 @@ public abstract partial class Document
             arr.AddInternal(valueId);
         }
 
-        var extendId = AllocExtendId();
-
-        _extends[extendId] = arr;
-        _tokens[tokenId] = DToken.MakeExtendContainer(DTokenType.Array, extendId, token.LinkId);
+        RegisterParsedContainer(token, tokenId, arr);
 
         return arr;
     }
@@ -560,7 +616,7 @@ public abstract partial class Document
             var tokenId = _emptyExtendId;
 
             _emptyExtendId = _tokens[tokenId].EmptyId;
-            _parentVersion = 0;
+            InvalidateParentTable();
 
             return tokenId;
         }
@@ -580,7 +636,7 @@ public abstract partial class Document
 
             _tokens[tokenId] = DToken.MakeEmpty(_emptyTokenId);
             _emptyTokenId = tokenId;
-            _parentVersion = 0;
+            InvalidateParentTable();
 
             return token.ExtendId;
         }
@@ -661,9 +717,34 @@ public abstract partial class Document
         }
     }
 
+    private void ClearContainerForScalar(uint tokenId)
+    {
+        var linkId = _tokens[tokenId].LinkId;
+        ClearContainer(tokenId);
+
+        var jumpId = tokenId + 1;
+        if (tokenId == RootId || linkId <= jumpId)
+        {
+            return;
+        }
+
+        // Free leaves the first child slot and its leading trivia as Nop, outside
+        // the free lists. Preserve reused slots and trivia in empty containers,
+        // which may be cached by the next value.
+        if (_tokens[jumpId] != default)
+        {
+            return;
+        }
+
+        // An extended parent ignores this jump, so no parent lookup is needed.
+        _tokens[jumpId] = DToken.MakeJump(linkId);
+    }
+
     internal void Free(uint tokenId, uint rootId, uint linkId)
     {
         var token = _tokens[tokenId];
+
+        FreeLeadingTrivia(tokenId);
 
         if (token.IsContainer)
         {
@@ -678,55 +759,45 @@ public abstract partial class Document
 
                 _extends[extendId] = null;
 
-                if (_emptyExtendId != 0)
-                {
-                    _tokens[tokenId] = DToken.MakeEmptyExtend(_emptyExtendId, extendId);
-                    _emptyExtendId = tokenId;
-                }
-                else
-                {
-                    _tokens[tokenId] = DToken.MakeEmptyExtend(0, extendId);
-                    _emptyExtendId = tokenId;
-                }
+                _tokens[tokenId] = DToken.MakeEmptyExtend(_emptyExtendId, extendId);
+                _emptyExtendId = tokenId;
             }
             else
             {
-                if (_emptyTokenId != 0)
-                {
-                    _tokens[tokenId] = DToken.MakeEmpty(_emptyTokenId);
-                    _emptyTokenId = tokenId;
-                }
-                else
-                {
-                    _tokens[tokenId] = DToken.MakeEmpty(0);
-                    _emptyTokenId = tokenId;
-                }
+                _tokens[tokenId] = DToken.MakeEmpty(_emptyTokenId);
+                _emptyTokenId = tokenId;
             }
         }
         else
         {
             _tokens[tokenId] = default;
+            if (token.IsExtended && !token.IsExtendInlineLiteral)
+            {
+                _extends[token.ExtendId] = null;
+                // Keep the reserved slot out of the free lists and reclaim only its ExtendId.
+                _emptyExtendId = AllocEmptyToken(DToken.MakeEmptyExtend(_emptyExtendId, token.ExtendId));
+            }
         }
 
-        Version++;
-        _parentVersion = 0;
+        IncrementVersion();
+        InvalidateParentTable();
     }
 
     internal uint JoinValue(uint tokenId, DValue value)
     {
+        if (!value.IsValid)
+        {
+            throw new ObjectDisposedException(nameof(DValue));
+        }
+
         if (value.Instance is DTokenVariant variant)
         {
             switch (variant.ToKind())
             {
                 case DTokenKind.String:
                     {
-                        Span<byte> temp = stackalloc byte[8];
                         var c = (char)value.Payload;
-                        var bytes = Encoding.UTF8.GetBytes([c], temp);
-                        var utf8Bytes = temp.Slice(0, bytes);
-
-                        return ExtendStringToken(tokenId, (StringKind)((int)variant & 7),
-                            Utf8Helper.GetUtf16String(utf8Bytes));
+                        return ExtendStringToken(tokenId, (StringKind)((int)variant & 7), c);
                     }
                 case DTokenKind.Boolean:
                 case DTokenKind.Null:
@@ -764,7 +835,7 @@ public abstract partial class Document
                 return ExtendLiteralToken(tokenId, DToken.MakeExtendLiteral(DTokenVariant.Null, 0));
             }
 
-            return SerializeToTokens(tokenId, value.Instance, value.Instance?.GetType() ?? typeof(object), Settings);
+            return SerializeToTokens(tokenId, value.Instance, value.Instance.GetType(), Settings);
         }
 
         if (value.Instance is Document document)
@@ -798,6 +869,12 @@ public abstract partial class Document
         }
 
         return ExtendToken(tokenId, kind.ToVariant(), value);
+    }
+
+    private uint ExtendStringToken(uint tokenId, StringKind kind, char value)
+    {
+        // Match the UTF-8 replacement fallback for an isolated surrogate.
+        return ExtendToken(tokenId, kind.ToVariant(), new string(char.IsSurrogate(value) ? '\uFFFD' : value, 1));
     }
 
     private uint ExtendSymbolToken(uint tokenId, string? value, SymbolKind kind)
@@ -848,6 +925,7 @@ public abstract partial class Document
 
     internal uint JoinAny<T>(uint tokenId, T value)
     {
+        // The JIT can eliminate unrelated typeof(T) branches for primitive value types.
         if (typeof(T) == typeof(DValue))
         {
             return JoinValue(tokenId, Unsafe.As<T, DValue>(ref value));
@@ -876,7 +954,7 @@ public abstract partial class Document
         if (typeof(T) == typeof(bool))
         {
             return ExtendLiteralToken(tokenId,
-                DToken.MakeExtendLiteral(Unsafe.As<T, bool>(ref value)
+                DToken.MakeExtendLiteral(Unsafe.BitCast<T, bool>(value)
                     ? DTokenVariant.BooleanTrue
                     : DTokenVariant.BooleanFalse, 0));
         }
@@ -884,63 +962,63 @@ public abstract partial class Document
         if (typeof(T) == typeof(byte))
         {
             return ExtendLiteralToken(tokenId,
-                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.As<T, byte>(ref value)));
+                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.BitCast<T, byte>(value)));
         }
 
         if (typeof(T) == typeof(sbyte))
         {
             return ExtendLiteralToken(tokenId,
-                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.As<T, sbyte>(ref value)));
+                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.BitCast<T, sbyte>(value)));
         }
 
         if (typeof(T) == typeof(ushort))
         {
             return ExtendLiteralToken(tokenId,
-                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.As<T, ushort>(ref value)));
+                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.BitCast<T, ushort>(value)));
         }
 
         if (typeof(T) == typeof(short))
         {
             return ExtendLiteralToken(tokenId,
-                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.As<T, short>(ref value)));
+                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.BitCast<T, short>(value)));
         }
 
         if (typeof(T) == typeof(int))
         {
             return ExtendLiteralToken(tokenId,
-                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.As<T, int>(ref value)));
+                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.BitCast<T, int>(value)));
         }
 
         if (typeof(T) == typeof(uint))
         {
             return ExtendLiteralToken(tokenId,
-                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.As<T, uint>(ref value)));
+                DToken.MakeExtendInlineInteger(IntegerKind.Inherit, Unsafe.BitCast<T, uint>(value)));
         }
 
         if (typeof(T) == typeof(long))
         {
-            return ExtendIntegerToken(tokenId, IntegerKind.Inherit, Unsafe.As<T, long>(ref value));
+            return ExtendIntegerToken(tokenId, IntegerKind.Inherit, Unsafe.BitCast<T, long>(value));
         }
 
         if (typeof(T) == typeof(ulong))
         {
-            return ExtendIntegerToken(tokenId, Unsafe.As<T, ulong>(ref value));
+            return ExtendIntegerToken(tokenId, Unsafe.BitCast<T, ulong>(value));
         }
 
         if (typeof(T) == typeof(float))
         {
             return ExtendLiteralToken(tokenId,
-                DToken.MakeExtendInlineSingle(FloatKind.Single, Unsafe.As<T, float>(ref value)));
+                DToken.MakeExtendInlineSingle(FloatKind.Single, Unsafe.BitCast<T, float>(value)));
         }
 
         if (typeof(T) == typeof(Half))
         {
-            return ExtendFloatToken(tokenId, FloatKind.Half, (double)Unsafe.As<T, Half>(ref value));
+            return ExtendFloatToken(tokenId, FloatKind.Half, (double)Unsafe.BitCast<T, Half>(value));
         }
 
         if (typeof(T) == typeof(double))
         {
-            return ExtendFloatToken(tokenId, FloatKind.Default, Unsafe.As<T, double>(ref value));
+            return ExtendFloatToken(tokenId, FloatKind.Default, Unsafe.BitCast<T, double>(value));
         }
 
         if (typeof(T) == typeof(decimal))
@@ -966,9 +1044,8 @@ public abstract partial class Document
 
         if (typeof(T) == typeof(Guid))
         {
-            Span<byte> guidBytes = stackalloc byte[16];
-            Unsafe.As<T, Guid>(ref value).TryWriteBytes(guidBytes, true, out var written);
-            return ExtendToken(tokenId, DTokenVariant.ByteStringGuid, guidBytes.ToArray());
+            var guid = Unsafe.BitCast<T, Guid>(value);
+            return ExtendGuidToken(tokenId, guid);
         }
 
         if (typeof(T) == typeof(byte[]))
@@ -981,74 +1058,68 @@ public abstract partial class Document
             return ExtendLiteralToken(tokenId, DToken.MakeExtendLiteral(DTokenVariant.Null, 0));
         }
 
+        if (value is DElement or IDoxNode)
+        {
+            return JoinObject(tokenId, value);
+        }
+
+        // Runtime values retain configured converters; JoinObject has separate scalar fast paths.
         return SerializeToTokens(tokenId, value, value.GetType(), Settings);
+    }
+
+    private uint ExtendGuidToken(uint tokenId, Guid guid)
+    {
+        var guidBytes = new byte[16];
+        guid.TryWriteBytes(guidBytes, true, out _);
+        return ExtendToken(tokenId, DTokenVariant.ByteStringGuid, guidBytes);
     }
 
     internal uint JoinObject(uint tokenId, object? value)
     {
-        if (value == null)
+        switch (value)
         {
-            return ExtendLiteralToken(tokenId, DToken.MakeExtendLiteral(DTokenVariant.Null, 0));
+            case null:
+                return ExtendLiteralToken(tokenId, DToken.MakeExtendLiteral(DTokenVariant.Null, 0));
+            case DElement element:
+                return JoinElement(tokenId, element);
+            case DValue doxValue:
+                return JoinValue(tokenId, doxValue);
+            case IDoxNode node:
+                return JoinElement(tokenId, node.AsElement());
+            case string text:
+                return JoinAny(tokenId, text);
+            case byte number:
+                return JoinAny(tokenId, number);
+            case sbyte number:
+                return JoinAny(tokenId, number);
+            case short number:
+                return JoinAny(tokenId, number);
+            case ushort number:
+                return JoinAny(tokenId, number);
+            case int number:
+                return JoinAny(tokenId, number);
+            case uint number:
+                return JoinAny(tokenId, number);
+            case long number:
+                return JoinAny(tokenId, number);
+            case ulong number:
+                return JoinAny(tokenId, number);
+            case bool boolean:
+                return JoinAny(tokenId, boolean);
+            case float number:
+                return JoinAny(tokenId, number);
+            case double number:
+                return JoinAny(tokenId, number);
+            case decimal:
+                return ExtendToken(tokenId, DTokenVariant.FloatDecimal, value);
+            case DateTime:
+                return ExtendToken(tokenId, TimestampKind.Inherit.ToVariant(), value);
+            case DateTimeOffset:
+                return ExtendToken(tokenId, DTokenVariant.TimestampOffsetDateTime, value);
+            default:
+                // Enums and custom types retain their configured converter behavior.
+                return SerializeToTokens(tokenId, value, value.GetType(), Settings);
         }
-
-        if (value is DElement element)
-        {
-            return JoinElement(tokenId, element);
-        }
-
-        if (value is DValue doxValue)
-        {
-            return JoinValue(tokenId, doxValue);
-        }
-
-        if (value is IDoxNode node)
-        {
-            return JoinElement(tokenId, node.AsElement());
-        }
-
-        var type = value.GetType();
-
-        if (!type.IsEnum)
-        {
-            switch (Type.GetTypeCode(type))
-            {
-                case TypeCode.String:
-                    return JoinAny(tokenId, (string)value);
-                case TypeCode.Byte:
-                    return JoinAny(tokenId, (byte)value);
-                case TypeCode.SByte:
-                    return JoinAny(tokenId, (sbyte)value);
-                case TypeCode.Int16:
-                    return JoinAny(tokenId, (short)value);
-                case TypeCode.UInt16:
-                    return JoinAny(tokenId, (ushort)value);
-                case TypeCode.Int32:
-                    return JoinAny(tokenId, (int)value);
-                case TypeCode.UInt32:
-                    return JoinAny(tokenId, (uint)value);
-                case TypeCode.Int64:
-                    return JoinAny(tokenId, (long)value);
-                case TypeCode.UInt64:
-                    return JoinAny(tokenId, (ulong)value);
-                case TypeCode.Boolean:
-                    return JoinAny(tokenId, (bool)value);
-                case TypeCode.Single:
-                    return JoinAny(tokenId, (float)value);
-                case TypeCode.Double:
-                    return JoinAny(tokenId, (double)value);
-                case TypeCode.Decimal:
-                    return JoinAny(tokenId, (decimal)value);
-                case TypeCode.DateTime:
-                    return JoinAny(tokenId, (DateTime)value);
-            }
-
-            if (type == typeof(DateTimeOffset))
-            {
-                return JoinAny(tokenId, (DateTimeOffset)value);
-            }
-        }
-
-        return SerializeToTokens(tokenId, value, type, Settings);
     }
 
     internal uint JoinTrivia(uint tokenId, byte[] trivia, TriviaKind kind)
@@ -1056,8 +1127,43 @@ public abstract partial class Document
         return ExtendTriviaToken(tokenId, kind, trivia);
     }
 
+    internal void FreeTrivia(uint tokenId)
+    {
+        var token = _tokens[tokenId];
+
+        if (token.IsExtended)
+        {
+            _extends[token.ExtendId] = null;
+            if (token.IsTriviaReuseProhibited)
+            {
+                _tokens[tokenId] = default;
+                // Keep the parsed slot as Nop and reclaim its ExtendId through a separate empty token.
+                _emptyExtendId = AllocEmptyToken(DToken.MakeEmptyExtend(_emptyExtendId, token.ExtendId));
+            }
+            else
+            {
+                _tokens[tokenId] = DToken.MakeEmptyExtend(_emptyExtendId, token.ExtendId);
+                _emptyExtendId = tokenId;
+            }
+        }
+        else
+        {
+            _tokens[tokenId] = default;
+        }
+    }
+
     internal uint JoinElement(uint tokenId, DElement value)
     {
+        if (!value.IsValid)
+        {
+            throw new ObjectDisposedException(nameof(DElement));
+        }
+
+        if (ReferenceEquals(value.Document, this) && tokenId == value.Id)
+        {
+            return tokenId;
+        }
+
         var token = value.Token;
 
         if (token.IsContainer)
@@ -1065,8 +1171,44 @@ public abstract partial class Document
             return CopyToTokens(tokenId, value);
         }
 
+        return JoinScalarElement(tokenId, value, token);
+    }
+
+    private uint JoinScalarElement(uint tokenId, DElement value, DToken token)
+    {
+        var source = value.Document;
+        if (token.Kind == DTokenKind.InlineFloat)
+        {
+            return ExtendLiteralToken(tokenId, new DToken((long)token | long.MinValue));
+        }
+
+        if (token.IsInlinePayload)
+        {
+            return tokenId == 0 ? AllocEmptyToken(token) : ExtendLiteralToken(tokenId, token);
+        }
+
+        if (token.IsExtended && !token.IsLiteral)
+        {
+            // Read before replacement: source may be a descendant of the destination.
+            var instance = source._extends[token.ExtendId];
+            if (instance is byte[] bytes)
+            {
+                instance = bytes.AsSpan().ToArray();
+            }
+
+            if (tokenId == 0 && (_emptyTokenId | _emptyExtendId) == 0)
+            {
+                var extendId = AllocExtendId();
+                _extends[extendId] = instance;
+                return AllocToken(DToken.MakeExtend(token.Variant, 0, extendId));
+            }
+
+            return ExtendToken(tokenId, token.Variant, instance);
+        }
+
         var variant = token.Variant;
 
+        // The token kind is known, so parsed payloads need no general scalar conversion.
         switch (variant.ToKind())
         {
             case DTokenKind.Boolean:
@@ -1077,10 +1219,10 @@ public abstract partial class Document
 
                     if (integerKind == IntegerKind.Unsigned)
                     {
-                        return ExtendIntegerToken(tokenId, (ulong)value.GetInt64());
+                        return ExtendIntegerToken(tokenId, (ulong)source.DecodeInteger(token));
                     }
 
-                    return ExtendIntegerToken(tokenId, integerKind, value.GetInt64());
+                    return ExtendIntegerToken(tokenId, integerKind, source.DecodeInteger(token));
                 }
             case DTokenKind.Float:
                 {
@@ -1088,31 +1230,29 @@ public abstract partial class Document
 
                     if (floatKind == FloatKind.Decimal)
                     {
-                        return ExtendToken(tokenId, variant, value.GetDecimal());
+                        return ExtendToken(tokenId, variant, source.DecodeDecimal(token));
                     }
 
-                    return ExtendFloatToken(tokenId, floatKind, value.GetDouble());
+                    return ExtendFloatToken(tokenId, floatKind, source.DecodeFloat(token));
                 }
-            case DTokenKind.InlineFloat:
-                return ExtendLiteralToken(tokenId, token);
             case DTokenKind.String:
-                return ExtendStringToken(tokenId, token.StringKind, value.GetString());
+                return ExtendStringToken(tokenId, token.StringKind, source.DecodeString(token));
             case DTokenKind.Symbol:
-                return ExtendSymbolToken(tokenId, value.GetString(), token.SymbolKind);
+                return ExtendSymbolToken(tokenId, source.DecodeString(token), token.SymbolKind);
             case DTokenKind.Timestamp:
                 if (variant == DTokenVariant.TimestampOffsetDateTime)
                 {
-                    return ExtendToken(tokenId, variant, value.GetDateTimeOffset());
+                    return ExtendToken(tokenId, variant, source.DecodeDateTimeOffset(token));
                 }
 
-                return ExtendToken(tokenId, variant, value.GetDateTime());
+                return ExtendToken(tokenId, variant, source.DecodeDateTime(token));
 
             case DTokenKind.BigNumber:
-                return ExtendToken(tokenId, variant, value.GetBigNumber().ToArray());
+                return ExtendToken(tokenId, variant, source.DecodeBigNumber(token).ToArray());
             case DTokenKind.ByteString:
-                return ExtendToken(tokenId, variant, value.GetByteString().ToArray());
+                return ExtendToken(tokenId, variant, source.DecodeByteString(token).ToArray());
             case DTokenKind.Null:
-                return ExtendLiteralToken(tokenId, DToken.MakeExtendLiteral(DTokenVariant.Null, 0));
+                return ExtendLiteralToken(tokenId, DToken.MakeExtendLiteral(variant, 0));
             default:
                 throw new NotSupportedException();
         }
@@ -1157,7 +1297,7 @@ public abstract partial class Document
 
         tokens.CopyTo(_tokens);
         _tokenPt = tokens.Length;
-        _parentVersion = 0;
+        InvalidateParentTable();
     }
 
     private uint CreateLeadingTrivia(uint tokenId)
@@ -1166,7 +1306,7 @@ public abstract partial class Document
 
         var count = enumerator.Count;
 
-        var list = new List<uint>(count);
+        var list = new TriviaList(count);
 
         foreach (var triviaId in enumerator)
         {
@@ -1222,11 +1362,11 @@ public abstract partial class Document
             var token = _tokens[tokenId];
             var triviaId = GetLeadingTrivia(tokenId);
 
-            if (literalToken.IsInlinePayload && token.Kind == literalToken.Kind)
+            if (literalToken.HasInlineSubKind && token.Kind == literalToken.Kind)
             {
                 if (literalToken.InlineKind == 7)
                 {
-                    literalToken.InlineKind = (uint)token.Variant & 7;
+                    literalToken.InlineKind = token.SubKind;
                 }
             }
 
@@ -1262,19 +1402,12 @@ public abstract partial class Document
 
             if (token.IsContainer)
             {
-                ClearContainer(tokenId);
-
-                var linkId = token.LinkId;
-                if (linkId != 0 && linkId != tokenId + 1)
-                {
-                    Debug.Assert(_tokens[tokenId + 1] == default);
-
-                    _tokens[tokenId + 1] = DToken.MakeJump(linkId);
-                }
+                ClearContainerForScalar(tokenId);
             }
 
             if (token.IsExtended && !token.IsExtendInlineLiteral)
             {
+                _extends[token.ExtendId] = null;
                 _emptyExtendId = AllocEmptyToken(DToken.MakeEmptyExtend(_emptyExtendId, token.ExtendId));
             }
 
@@ -1292,10 +1425,18 @@ public abstract partial class Document
     {
         var extendId = 0U;
         var linkId = 0U;
+        var triviaId = 0U;
 
         if (tokenId != 0)
         {
             var token = _tokens[tokenId];
+            // Preserve leading trivia before clearing the old container or replacing the token.
+            triviaId = GetLeadingTrivia(tokenId);
+            if (triviaId == uint.MaxValue)
+            {
+                triviaId = CreateLeadingTrivia(tokenId);
+            }
+
             linkId = tokenId + 1;
 
             if (token.IsContainer)
@@ -1304,14 +1445,7 @@ public abstract partial class Document
                 linkId = token.LinkId;
             }
 
-            if (token.IsExtended && !token.IsExtendInlineLiteral)
-            {
-                extendId = token.ExtendId;
-            }
-            else
-            {
-                extendId = AllocExtendId();
-            }
+            extendId = GetOrAllocExtendId(token);
         }
         else
         {
@@ -1321,11 +1455,11 @@ public abstract partial class Document
 
         if (type == DTokenType.Map)
         {
-            _extends[extendId] = new DObject(new DElement(this, tokenId), capacity);
+            _extends[extendId] = new DObject(new DElement(this, tokenId), capacity) { TriviaId = triviaId };
         }
         else
         {
-            _extends[extendId] = new DArray(new DElement(this, tokenId), capacity);
+            _extends[extendId] = new DArray(new DElement(this, tokenId), capacity) { TriviaId = triviaId };
         }
 
         _tokens[tokenId] = DToken.MakeExtendContainer(type, extendId, linkId);
@@ -1341,16 +1475,8 @@ public abstract partial class Document
 
             Debug.Assert(token.Kind == DTokenKind.Trivia);
 
-            var extendId = 0U;
-
-            if (token.IsExtended)
-            {
-                extendId = token.ExtendId;
-            }
-            else
-            {
-                extendId = AllocExtendId();
-            }
+            var isReuseProhibited = !token.IsExtended || token.IsTriviaReuseProhibited;
+            var extendId = GetOrAllocExtendId(token);
 
             if (kind == TriviaKind.Inherit)
             {
@@ -1358,7 +1484,7 @@ public abstract partial class Document
             }
 
             _extends[extendId] = value;
-            _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), 0, extendId);
+            _tokens[tokenId] = DToken.MakeExtend(kind.ToVariant(), isReuseProhibited ? 1U : 0, extendId);
         }
         else
         {
@@ -1385,33 +1511,14 @@ public abstract partial class Document
         if (tokenId != 0)
         {
             var token = _tokens[tokenId];
-            var linkId = tokenId + 1;
             var triviaId = GetLeadingTrivia(tokenId);
 
             if (token.IsContainer)
             {
-                ClearContainer(tokenId);
-
-                linkId = token.LinkId;
-
-                if (linkId != 0 && linkId != tokenId + 1)
-                {
-                    Debug.Assert(_tokens[tokenId + 1] == default);
-
-                    _tokens[tokenId + 1] = DToken.MakeJump(linkId);
-                }
+                ClearContainerForScalar(tokenId);
             }
 
-            var extendId = 0U;
-
-            if (token.IsExtended && !token.IsExtendInlineLiteral)
-            {
-                extendId = token.ExtendId;
-            }
-            else
-            {
-                extendId = AllocExtendId();
-            }
+            var extendId = GetOrAllocExtendId(token);
 
             if (triviaId == uint.MaxValue)
             {
@@ -1420,11 +1527,12 @@ public abstract partial class Document
 
             if (variant.IsInherit)
             {
-                if (!token.Variant.IsInherit && token.Kind == variant.ToKind())
+                if (token.Kind == variant.ToKind())
                 {
-                    variant = token.Variant;
+                    variant = token.Kind.ToVariant() | (DTokenVariant)token.SubKind;
                 }
-                else
+
+                if (variant.IsInherit)
                 {
                     variant = variant.ToDefault();
                 }
@@ -1449,6 +1557,12 @@ public abstract partial class Document
         }
 
         return tokenId;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private uint GetOrAllocExtendId(DToken token)
+    {
+        return token.IsExtended && !token.IsExtendInlineLiteral ? token.ExtendId : AllocExtendId();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1493,6 +1607,14 @@ public abstract partial class Document
 
         value = default;
         return false;
+    }
+
+    /// <summary>Gets the UTF-8 text of a text token that is not necessarily stored in this document's token table.</summary>
+    internal ReadOnlySpan<byte> GetTextBytes(DToken token)
+    {
+        Debug.Assert(token.Type == DTokenType.Text);
+
+        return token.IsExtended ? GetExtendUtf8Bytes(token) : DecodeUtf8Bytes(token);
     }
 
     internal string GetStringValue(uint tokenId)
@@ -2372,12 +2494,15 @@ public abstract partial class Document
             $"Cannot convert value {new DElement(this, tokenId)} to {typeof(DateTimeOffset)}");
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal bool TryGetDecimalExact(uint tokenId, out decimal value)
     {
         var token = GetToken(tokenId);
 
         switch (token.Kind)
         {
+            case DTokenKind.InlineFloat:
+                return TryConvertToDecimal(DToken.DecodeInlineFloatPayload(token), out value);
             case DTokenKind.Float:
                 if (token.IsExtended)
                 {
@@ -2437,52 +2562,18 @@ public abstract partial class Document
     }
 
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal decimal GetDecimalValue(uint tokenId)
     {
+        if (TryGetDecimalExact(tokenId, out var value))
+        {
+            return value;
+        }
+
         var token = GetToken(tokenId);
 
         switch (token.Kind)
         {
-            case DTokenKind.Float:
-                if (token.IsExtended)
-                {
-                    if (token.Variant == DTokenVariant.FloatDecimal)
-                    {
-                        return GetExtendDecimal(token);
-                    }
-
-                    if (TryConvertToDecimal(GetExtendDouble(token), out var evalue))
-                    {
-                        return evalue;
-                    }
-
-                    break;
-                }
-
-            {
-                if (TryDecodeDecimal(token, out var dvalue))
-                {
-                    return dvalue;
-                }
-            }
-                break;
-            case DTokenKind.Integer:
-                if (token.Variant == DTokenVariant.IntegerUnsigned)
-                {
-                    if (TryGetUnsignedIntegerExact(tokenId, out var uvalue))
-                    {
-                        return uvalue;
-                    }
-                }
-                else
-                {
-                    if (TryGetSignedIntegerExact(tokenId, out var lvalue))
-                    {
-                        return lvalue;
-                    }
-                }
-
-                break;
             case DTokenKind.String:
             case DTokenKind.Symbol:
             case DTokenKind.ByteString:
@@ -2509,17 +2600,6 @@ public abstract partial class Document
                     }
                 }
                 break;
-            case DTokenKind.BigNumber:
-                {
-                    var source = GetBigNumberValue(tokenId);
-
-                    if (Utf8Parser.TryParse(source, out decimal dvalue, out var bytesConsumed) &&
-                        source.Length == bytesConsumed)
-                    {
-                        return dvalue;
-                    }
-                }
-                break;
             case DTokenKind.Boolean:
                 ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(decimal));
                 if (TryGetBooleanExact(tokenId, out var bvalue))
@@ -2536,38 +2616,18 @@ public abstract partial class Document
             $"Cannot convert value {new DElement(this, tokenId)} to {typeof(decimal)}");
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal double GetFloatingValue(uint tokenId)
     {
+        if (TryGetFloatingExact(tokenId, out var value))
+        {
+            return value;
+        }
+
         ref var token = ref _tokens[tokenId];
 
         switch (token.Kind)
         {
-            case DTokenKind.InlineFloat:
-                return DToken.DecodeInlineFloatPayload(token);
-            case DTokenKind.Float:
-                if (token.Variant == DTokenVariant.FloatDecimal)
-                {
-                    return (double)(token.IsExtended ? GetExtendDecimal(token) : DecodeDecimal(token));
-                }
-
-                return token.IsExtended ? GetExtendDouble(token) : DecodeFloat(token);
-            case DTokenKind.Integer:
-                if (token.Variant == DTokenVariant.IntegerUnsigned)
-                {
-                    if (TryGetUnsignedIntegerExact(tokenId, out var uvalue))
-                    {
-                        return uvalue;
-                    }
-                }
-                else
-                {
-                    if (TryGetSignedIntegerExact(tokenId, out var lvalue))
-                    {
-                        return lvalue;
-                    }
-                }
-
-                break;
             case DTokenKind.String:
             case DTokenKind.Symbol:
                 ThrowIfRelaxedScalarConversionDisabled(tokenId, typeof(double));
@@ -2599,17 +2659,6 @@ public abstract partial class Document
                     return bvalue ? 1.0 : 0.0;
                 }
 
-                break;
-            case DTokenKind.BigNumber:
-                {
-                    var source = GetBigNumberValue(tokenId);
-
-                    if (Utf8Parser.TryParse(source, out double result, out var bytesConsumed) &&
-                        source.Length == bytesConsumed)
-                    {
-                        return result;
-                    }
-                }
                 break;
             case DTokenKind.Control:
                 return 0;
@@ -2909,22 +2958,184 @@ public abstract partial class Document
         return (DateTimeOffset)_extends[token.ExtendId]!;
     }
 
+    internal uint CloneElementToTokens(DElement element)
+    {
+        Debug.Assert(_tokenPt == 1 && _extendCount == 0);
+        return CopyToTokens(0, element);
+    }
+
     private uint CopyToTokens(uint rootId, DElement element)
     {
         if (!element.IsValid)
         {
-            throw new ObjectDisposedException(element.Document.ToString());
+            throw new ObjectDisposedException(nameof(DElement));
         }
 
-        using (var cache = Helper.InstanceCache<TokenWriter>.Get(() => new TokenWriter()))
+        if (ReferenceEquals(element.Document, this))
         {
-            var writer = cache.Value;
-            var reader = new DataReader(element);
-            writer.Reset(this, rootId, Settings);
+            if (rootId == element.Id)
+            {
+                return rootId;
+            }
 
-            WriteToken(writer, reader, reader.RootId);
+            // Finish reading before replacement or slot reuse can change the source tokens.
+            using var snapshot = element.Clone().Document;
+            return CopyToTokens(rootId, snapshot.RootElement);
+        }
 
-            return writer.RootId;
+        var source = element.Document;
+        var sourceId = element.Id;
+        var copiedRootId = 0U;
+        var sequenceMode = rootId == 0 && (_emptyTokenId | _emptyExtendId) == 0;
+        if (sequenceMode && !IsPooled)
+        {
+            var rootCount = source.GetValueCount(sourceId);
+            var capacity = _tokenPt + (element.Token.Type == DTokenType.Map ? rootCount * 2 : rootCount) + 1;
+            if (capacity > _tokens.Length)
+            {
+                EnsureCapacity(Math.Max(capacity, _tokens.Length * 2));
+            }
+        }
+
+        using var stack = new Helper.LocalStack<
+            (uint sourceId, uint copyId, uint nextId, int index, int count, uint latestId, uint keyId)>(
+            stackalloc (uint sourceId, uint copyId, uint nextId, int index, int count, uint latestId, uint keyId)[16],
+            int.MaxValue);
+
+        for (;;)
+        {
+            var token = source.GetToken(sourceId);
+            var destinationId = copiedRootId == 0 ? rootId : 0;
+            uint copyId;
+            var count = 0;
+            if (token.IsContainer)
+            {
+                count = source.GetValueCount(sourceId);
+                // Contiguous containers can skip their children via LinkId. Reused slots need an index.
+                copyId = sequenceMode || (destinationId == 0 && (_emptyTokenId | _emptyExtendId) == 0)
+                    ? AllocToken(token.Type == DTokenType.Map ? DToken.MakeMap(count) : DToken.MakeArray(count))
+                    : ExtendContainer(destinationId, token.Type, count);
+            }
+            else if (sequenceMode && token.IsExtendInlineLiteral)
+            {
+                if (!token.IsInlinePayload)
+                {
+                    token.TriviaId = 0;
+                }
+
+                copyId = AllocToken(token);
+            }
+            else if (sequenceMode && token.IsLiteral)
+            {
+                copyId = AllocToken(DToken.MakeExtendLiteral(token.Variant, 0));
+            }
+            else if (sequenceMode && token.IsExtended)
+            {
+                var instance = source._extends[token.ExtendId];
+                if (instance is byte[] bytes)
+                {
+                    instance = bytes.AsSpan().ToArray();
+                }
+
+                var extendId = AllocExtendId();
+                _extends[extendId] = instance;
+                copyId = AllocToken(DToken.MakeExtend(token.Variant, 0, extendId));
+            }
+            else
+            {
+                copyId = JoinScalarElement(destinationId, new DElement(source, sourceId), token);
+            }
+
+            if (stack.Count == 0)
+            {
+                copiedRootId = copyId;
+            }
+            else if (!sequenceMode && _tokens[stack.Peek().copyId].IsExtended)
+            {
+                ref var parent = ref stack.Peek();
+                var parentToken = _tokens[parent.copyId];
+                var container = GetExtendContainer(parentToken);
+                if (container is DArray array)
+                {
+                    array.AddInternal(copyId);
+                }
+                else if ((parent.index & 1) != 0)
+                {
+                    parent.keyId = copyId;
+                }
+                else
+                {
+                    ((DObject)container).AddKeyValuePairInternal(parent.keyId, copyId);
+                    parent.keyId = 0;
+                }
+
+                if (parent.latestId != 0)
+                {
+                    LinkToken(parent.latestId, copyId);
+                }
+
+                parent.latestId = copyId;
+            }
+
+            if (token.IsContainer)
+            {
+                stack.Push((sourceId, copyId, sourceId + 1, 0,
+                    token.Type == DTokenType.Map ? count * 2 : count, 0, 0));
+            }
+
+            while (stack.Count > 0)
+            {
+                ref var state = ref stack.Peek();
+                if (state.index == state.count)
+                {
+                    if (sequenceMode || !_tokens[state.copyId].IsExtended)
+                    {
+                        _tokens[state.copyId].LinkId = (uint)_tokenPt;
+                    }
+
+                    stack.Pop();
+                    continue;
+                }
+
+                token = source.GetToken(state.sourceId);
+                if (token.IsExtended)
+                {
+                    var container = source.GetExtendContainer(token);
+                    if (container is DArray array)
+                    {
+                        sourceId = array.GetValueInternal(state.index);
+                    }
+                    else
+                    {
+                        var pair = container is DMap map
+                            ? map.GetKeyValuePairInternal(state.index / 2)
+                            : ((DObject)container).GetKeyValuePairInternal(state.index / 2);
+                        sourceId = (state.index & 1) == 0 ? pair.Key : pair.Value;
+                    }
+                }
+                else
+                {
+                    sourceId = state.nextId;
+                    token = source.GetToken(sourceId);
+                    while (token.IsIgnore)
+                    {
+                        sourceId = token.Kind == DTokenKind.Control && !token.IsExtended && token.JumpId != 0
+                            ? token.JumpId
+                            : sourceId + 1;
+                        token = source.GetToken(sourceId);
+                    }
+
+                    state.nextId = source.NextToken(sourceId);
+                }
+
+                state.index++;
+                break;
+            }
+
+            if (stack.Count == 0)
+            {
+                return copiedRootId;
+            }
         }
     }
 
@@ -2951,113 +3162,6 @@ public abstract partial class Document
             converter.WriteObject(writer, inputType, value);
 
             return writer.RootId;
-        }
-    }
-
-    private void WriteToken(DataWriter writer, in DataReader reader, uint tokenId)
-    {
-        var token = reader.GetToken(tokenId);
-
-        if (token.IsContainer)
-        {
-            if (token.Type == DTokenType.Map)
-            {
-                writer.WriteStartMap(reader.GetValueCount(tokenId));
-                foreach (var kv in reader.EnumerateMap(tokenId))
-                {
-                    WriteToken(writer, reader, kv.Key);
-                    WriteToken(writer, reader, kv.Value);
-                }
-
-                writer.WriteEndMap();
-            }
-            else
-            {
-                writer.WriteStartArray(reader.GetValueCount(tokenId));
-                foreach (var v in reader.EnumerateArray(tokenId))
-                {
-                    WriteToken(writer, reader, v);
-                }
-
-                writer.WriteEndArray();
-            }
-        }
-        else
-        {
-            switch (token.Kind)
-            {
-                case DTokenKind.Boolean:
-                    writer.WriteBoolean(reader.ReadBoolean(tokenId));
-                    break;
-                case DTokenKind.Integer:
-                    if (token.IntegerKind == IntegerKind.Unsigned)
-                    {
-                        writer.WriteUInt64(reader.ReadUInt64(tokenId));
-                    }
-                    else
-                    {
-                        writer.WriteInt64(reader.ReadInt64(tokenId));
-                    }
-
-                    break;
-                case DTokenKind.Float:
-                    switch (token.FloatKind)
-                    {
-                        case FloatKind.Decimal:
-                            writer.WriteDecimal(reader.ReadDecimal(tokenId));
-                            break;
-                        case FloatKind.Single:
-                            writer.WriteSingle(reader.ReadSingle(tokenId));
-                            break;
-                        case FloatKind.Half:
-                            writer.WriteHalf(reader.ReadHalf(tokenId));
-                            break;
-                        default:
-                            writer.WriteDouble(reader.ReadDouble(tokenId));
-                            break;
-                    }
-
-                    break;
-                case DTokenKind.String:
-                    if (token.IsExtended)
-                    {
-                        writer.WriteString(reader.ReadString(tokenId));
-                    }
-                    else
-                    {
-                        writer.WriteString(reader.ReadUtf8String(tokenId));
-                    }
-
-                    break;
-                case DTokenKind.Symbol:
-                    writer.WriteSymbol(reader.ReadString(tokenId), token.SymbolKind);
-                    break;
-                case DTokenKind.Null:
-                    writer.WriteNull();
-                    break;
-                case DTokenKind.Timestamp:
-                    if (token.TimestampKind == TimestampKind.OffsetDateTime)
-                    {
-                        writer.WriteDateTimeOffset(reader.ReadDateTimeOffset(tokenId));
-                    }
-                    else
-                    {
-                        writer.WriteDateTime(reader.ReadDateTime(tokenId));
-                    }
-
-                    break;
-                case DTokenKind.BigNumber:
-                    writer.WriteBigNumber(reader.ReadBigNumber(tokenId), token.BigNumberKind);
-                    break;
-                case DTokenKind.ByteString:
-                    writer.WriteByteString(reader.ReadByteString(tokenId), token.ByteStringKind);
-                    break;
-                case DTokenKind.InlineFloat:
-                    writer.WriteDouble(reader.ReadDouble(tokenId));
-                    break;
-                default:
-                    throw new InvalidOperationException($"Cannot write token of kind {token.Kind} to writer");
-            }
         }
     }
 }

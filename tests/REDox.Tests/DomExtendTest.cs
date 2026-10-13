@@ -486,7 +486,7 @@ public class DomExtendTest
     public void ReplaceObject()
     {
         var arr = new DArray();
-        arr.Add(default);
+        arr.Add(DValue.Null);
 
         DumpTokens(arr.Document);
 

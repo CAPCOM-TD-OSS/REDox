@@ -52,6 +52,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         _element = element;
         _values = src.KeyValuePairs.ToArray();
         _count = _values.Length;
+        TriviaId = src.TriviaId;
     }
 
     internal DObject(DElement element, DMap src)
@@ -59,6 +60,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         _element = element;
         _values = src.KeyValuePairs.ToArray();
         _count = _values.Length;
+        TriviaId = src.TriviaId;
     }
 
     internal ReadOnlySpan<KeyValuePair<uint, uint>> KeyValuePairs => _values.AsSpan(0, _count);
@@ -243,9 +245,16 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
 
             if (entry.Value == 0)
             {
-                entry = new KeyValuePair<uint, uint>(entry.Key, Document.JoinValue(0, value));
-
-                _values[index] = entry;
+                try
+                {
+                    entry = new KeyValuePair<uint, uint>(entry.Key, Document.JoinValue(0, value));
+                    _values[index] = entry;
+                }
+                catch
+                {
+                    RemoveAt(index);
+                    throw;
+                }
             }
             else
             {
@@ -439,8 +448,16 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
 
         if (entry.Value == 0)
         {
-            entry = new KeyValuePair<uint, uint>(entry.Key, Document.JoinObject(0, value));
-            _values[index] = entry;
+            try
+            {
+                entry = new KeyValuePair<uint, uint>(entry.Key, Document.JoinObject(0, value));
+                _values[index] = entry;
+            }
+            catch
+            {
+                RemoveAt(index);
+                throw;
+            }
         }
         else
         {
@@ -460,8 +477,16 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
 
         var entry = _values[index];
 
-        entry = new KeyValuePair<uint, uint>(entry.Key, Document.JoinAny(entry.Value, value));
-        _values[index] = entry;
+        try
+        {
+            entry = new KeyValuePair<uint, uint>(entry.Key, Document.JoinAny(entry.Value, value));
+            _values[index] = entry;
+        }
+        catch
+        {
+            RemoveAt(index);
+            throw;
+        }
 
         return true;
     }
@@ -562,7 +587,10 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         var rootId = Id;
         var linkId = doc.GetToken(rootId).LinkId;
         doc.Free(_values[index].Key, rootId, linkId);
-        doc.Free(_values[index].Value, rootId, linkId);
+        if (_values[index].Value != 0)
+        {
+            doc.Free(_values[index].Value, rootId, linkId);
+        }
 
         _values.AsSpan().Slice(index + 1, _count - index - 1)
             .CopyTo(_values.AsSpan().Slice(index, _count - index - 1));

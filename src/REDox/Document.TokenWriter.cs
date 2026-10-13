@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Text;
 using REDox.Serialization;
 
 namespace REDox;
@@ -14,7 +13,7 @@ public abstract partial class Document
 {
     private class TokenWriter : DataWriter
     {
-        private readonly Stack<(uint parentId, uint latestId)> _stack;
+        private readonly Stack<(uint parentId, uint latestId, uint keyId)> _stack;
 
         private Document _document;
         private uint _keyId;
@@ -24,7 +23,7 @@ public abstract partial class Document
         public TokenWriter()
         {
             _document = null!;
-            _stack = new Stack<(uint, uint)>();
+            _stack = new Stack<(uint, uint, uint)>();
         }
 
         public uint RootId { get; private set; }
@@ -121,10 +120,11 @@ public abstract partial class Document
                     : doc.AddExtendArray(capacity).Id;
                 AddValueId(tokenId);
 
-                _stack.Push((_parentId, _latestId));
+                _stack.Push((_parentId, _latestId, _keyId));
 
                 _parentId = tokenId;
                 _latestId = 0;
+                _keyId = 0;
             }
         }
 
@@ -137,6 +137,7 @@ public abstract partial class Document
 
                 _parentId = state.parentId;
                 _latestId = state.latestId;
+                _keyId = state.keyId;
             }
         }
 
@@ -167,10 +168,11 @@ public abstract partial class Document
                     : doc.AddExtendObject(capacity).Id;
                 AddValueId(tokenId);
 
-                _stack.Push((_parentId, _latestId));
+                _stack.Push((_parentId, _latestId, _keyId));
 
                 _parentId = tokenId;
                 _latestId = 0;
+                _keyId = 0;
             }
         }
 
@@ -194,6 +196,7 @@ public abstract partial class Document
 
                 _parentId = state.parentId;
                 _latestId = state.latestId;
+                _keyId = state.keyId;
             }
         }
 
@@ -205,10 +208,7 @@ public abstract partial class Document
 
         public override void WriteChar(char value)
         {
-            Span<byte> bytes = stackalloc byte[4];
-            var len = Encoding.UTF8.GetBytes(new ReadOnlySpan<char>(ref value), bytes);
-
-            WriteString(bytes.Slice(0, len));
+            AddValueId(_document.ExtendStringToken(_parentId == 0 ? RootId : 0, StringKind.Default, value));
         }
 
         public override void WriteDecimal(decimal value)
@@ -218,11 +218,7 @@ public abstract partial class Document
 
         public override void WriteGuid(Guid value)
         {
-            Span<byte> guidBytes = stackalloc byte[16];
-            value.TryWriteBytes(guidBytes, true, out var written);
-
-            AddValueId(_document.ExtendToken(_parentId == 0 ? RootId : 0, DTokenVariant.ByteStringGuid,
-                guidBytes.ToArray()));
+            AddValueId(_document.ExtendGuidToken(_parentId == 0 ? RootId : 0, value));
         }
 
         public override void WriteByteString(ReadOnlySpan<byte> value, ByteStringKind kind = ByteStringKind.Default)

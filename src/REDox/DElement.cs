@@ -954,7 +954,16 @@ public readonly partial struct DElement : IEquatable<DElement>
     {
         ThrowIfInvalid();
 
-        return DoxNodeDocument.CreateFrom(this, Document.Settings).RootElement;
+        if (!Token.IsContainer)
+        {
+            var document = new DoxNodeDocument(Document.Settings);
+            document.RootId = document.JoinElement(0, this);
+            return document.RootElement;
+        }
+
+        var clone = new DoxNodeDocument(Document.Settings);
+        clone.RootId = clone.CloneElementToTokens(this);
+        return clone.RootElement;
     }
 
     public override bool Equals(object? obj)

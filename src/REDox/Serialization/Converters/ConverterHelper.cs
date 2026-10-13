@@ -669,7 +669,7 @@ static class ConverterHelper
             var interfaces = dictType.GetInterfaces();
             if (dictType.IsInterface)
             {
-                interfaces = [dictType, ..interfaces];
+                interfaces = [dictType, .. interfaces];
             }
 
             foreach (var iface in interfaces)

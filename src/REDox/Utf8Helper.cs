@@ -1570,6 +1570,39 @@ static class Utf8Helper
         return a.SequenceEqual(b);
     }
 
+    /// <summary>
+    ///     Computes a hash code that is consistent with
+    ///     <see cref="Equals(ReadOnlySpan{byte}, ReadOnlySpan{byte}, bool)" />.
+    /// </summary>
+    public static int GetHashCode(ReadOnlySpan<byte> bytes, bool ignoreCase)
+    {
+        var hashCode = new HashCode();
+
+        if (!ignoreCase)
+        {
+            hashCode.AddBytes(bytes);
+            return hashCode.ToHashCode();
+        }
+
+        var words = MemoryMarshal.Cast<byte, long>(bytes);
+
+        for (var i = 0; i < words.Length; i++)
+        {
+            hashCode.Add(ToUpper(words[i]));
+        }
+
+        long tail = 0;
+
+        for (var i = bytes.Length - 1; i >= words.Length * 8; i--)
+        {
+            tail = (tail << 8) | bytes[i];
+        }
+
+        hashCode.Add(ToUpper(tail));
+
+        return hashCode.ToHashCode();
+    }
+
     public static DTokenVariant GetIntegerTokenKind(ReadOnlySpan<byte> number)
     {
         if (number[0] == '-')

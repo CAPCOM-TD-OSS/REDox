@@ -22,9 +22,6 @@ public sealed class JsonDocument : Document
     private static readonly SearchValues<byte> s_stringValidationSearchValues = SearchValues.Create(
         "\0\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\\"u8);
 
-    private static readonly SearchValues<byte> s_hexDigitSearchValues =
-        SearchValues.Create("0123456789abcdefABCDEF"u8);
-
     private byte[]? _rentedBuffer;
     private ReadOnlyMemory<byte> _source;
 
@@ -495,11 +492,16 @@ public sealed class JsonDocument : Document
                                             bytes.Length - i);
                                     }
 
-                                    if (bytes.Slice(i + 2, 4).ContainsAnyExcept(s_hexDigitSearchValues))
+                                    for (var j = i + 2; j < i + 6; j++)
                                     {
-                                        return new ParseException(this,
-                                            ParseException.ErrorCode.InvalidEscapeSequence,
-                                            param.offset + i, 6);
+                                        if (!((bytes[j] >= '0' && bytes[j] <= '9') ||
+                                              (bytes[j] >= 'a' && bytes[j] <= 'f') ||
+                                              (bytes[j] >= 'A' && bytes[j] <= 'F')))
+                                        {
+                                            return new ParseException(this,
+                                                ParseException.ErrorCode.InvalidEscapeSequence,
+                                                param.offset + i, 6);
+                                        }
                                     }
 
                                     i += 5;
@@ -1602,7 +1604,7 @@ public sealed class JsonDocument : Document
     {
         var token = GetToken(tokenId);
 
-        if (token.IsExtended)
+        if (token.IsExtended || token.IsContainer)
         {
             data = ReadOnlySpan<byte>.Empty;
             return false;

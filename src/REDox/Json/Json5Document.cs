@@ -25,6 +25,23 @@ public sealed class Json5Document : Document
     {
     }
 
+    /// <summary>Gets the editable trivia following the document's root value.</summary>
+    /// <remarks>
+    ///     Parsed trailing comments and whitespace are retained when <see cref="Json5DocumentOptions.PreserveTrivia" />
+    ///     is enabled. Use <see cref="Json5WriteOptions.PreserveTrivia" /> to include trailing comments in output.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">This document has been disposed.</exception>
+    public DTriviaCollection TrailingTrivia
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(!IsValid, this);
+            // Keep the trivia IDs in a list before replacements change their token representation.
+            EnsureElementTriviaList(_tailId);
+            return new DValue(this, _tailId).LeadingTrivia;
+        }
+    }
+
     public Json5Document Duplicate()
     {
         var doc = CreateSnapshot<Json5Document>();
@@ -86,7 +103,7 @@ public sealed class Json5Document : Document
         }
 
         document.RootId = rootId;
-        document._tailId = document.AllocToken(default);
+        document._tailId = document.AllocToken(DToken.Make(DTokenVariant.Null, 0));
 
         return true;
     }
@@ -294,7 +311,7 @@ public sealed class Json5Document : Document
             var error = ParseJson5(_source.Span, out var rootId, options);
 
             RootId = rootId;
-            _tailId = AllocToken(default);
+            _tailId = AllocToken(DToken.Make(DTokenVariant.Null, 0));
 
             if (error != null)
             {
@@ -984,7 +1001,13 @@ public sealed class Json5Document : Document
                                 }
                                 else
                                 {
-                                    tokenType = Utf8Helper.GetIntegerTokenKind(json.Slice(offset, length));
+                                    var number = json.Slice(offset, length);
+                                    if (number[0] == '+')
+                                    {
+                                        number = number.Slice(1);
+                                    }
+
+                                    tokenType = Utf8Helper.GetIntegerTokenKind(number);
                                 }
                             }
                         }
@@ -1477,6 +1500,12 @@ public sealed class Json5Document : Document
                 WriteTriviaList(writer, in reader, null, 0, ref state);
             }
         }
+
+        while (state.HasEndToken)
+        {
+            writer.WriteIndentNewLine();
+            writer.WriteUtf8Byte(state.DequeueEndToken());
+        }
     }
 
     private static bool TryParseHex(ReadOnlySpan<byte> bytes, out int result)
@@ -1627,15 +1656,55 @@ public sealed class Json5Document : Document
     {
         var utf8Bytes = reader.ReadTrivia(triviaId);
 
-        var kind = reader.GetToken(triviaId).TriviaKind;
+        var trivia = reader.GetToken(triviaId);
+        var kind = trivia.TriviaKind;
 
         if (kind == TriviaKind.LineComment || kind == TriviaKind.Default)
         {
             writer.WriteString("//"u8);
+
+            // Split edited text at JSON5 line terminators so every line stays a comment.
+            if (trivia.IsExtended)
+            {
+                var start = 0;
+                for (var index = 0; index < utf8Bytes.Length; index++)
+                {
+                    var length = 0;
+                    if (utf8Bytes[index] == '\r')
+                    {
+                        length = index + 1 < utf8Bytes.Length && utf8Bytes[index + 1] == '\n' ? 2 : 1;
+                    }
+                    else if (utf8Bytes[index] == '\n')
+                    {
+                        length = 1;
+                    }
+                    else if (utf8Bytes[index] == 0xe2 && index + 2 < utf8Bytes.Length &&
+                             utf8Bytes[index + 1] == 0x80 && (utf8Bytes[index + 2] == 0xa8 || utf8Bytes[index + 2] == 0xa9))
+                    {
+                        length = 3;
+                    }
+
+                    if (length > 0)
+                    {
+                        writer.WriteString(utf8Bytes.Slice(start, index - start));
+                        writer.WriteNewLine();
+                        writer.WriteString("//"u8);
+                        index += length - 1;
+                        start = index + 1;
+                    }
+                }
+
+                utf8Bytes = utf8Bytes.Slice(start);
+            }
         }
 
         if (kind == TriviaKind.BlockComment)
         {
+            if (utf8Bytes.IndexOf("*/"u8) >= 0)
+            {
+                throw new ArgumentException("Block comment text cannot contain '*/'.");
+            }
+
             writer.WriteString("/*"u8);
         }
 
@@ -1764,6 +1833,7 @@ public sealed class Json5Document : Document
                 excessClosers = closerCount - state.EndTokenCount;
             }
 
+            var remainingEndTokenCount = state.EndTokenCount;
             var valueSeparatorAllowed = state.HasEndToken ? !state.HeadEndTokenEmpty : state.NeedValueSeparator;
 
             foreach (var triviaId in reader.EnumerateTrivia(tokenId))
@@ -1789,8 +1859,9 @@ public sealed class Json5Document : Document
                             excessClosers--;
                             skip = true;
                         }
-                        else if (state.RemoveEndToken(separator[0]))
+                        else if (remainingEndTokenCount > 0)
                         {
+                            remainingEndTokenCount--;
                             valueSeparatorAllowed = true;
                             pendingCommaIndex = -1;
                         }
@@ -1802,11 +1873,13 @@ public sealed class Json5Document : Document
 
                     if (separator.SequenceEqual(","u8))
                     {
-                        if (valueSeparatorAllowed)
+                        // After the last closer, a comma is only valid when
+                        // another value follows in the surrounding container.
+                        if (valueSeparatorAllowed && (remainingEndTokenCount > 0 || state.NeedValueSeparator))
                         {
                             valueSeparatorAllowed = false;
 
-                            if (!state.HasEndToken)
+                            if (remainingEndTokenCount == 0)
                             {
                                 state.NeedValueSeparator = false;
                             }
@@ -1821,6 +1894,13 @@ public sealed class Json5Document : Document
                         }
                     }
 
+                    if (separator.SequenceEqual(":"u8))
+                    {
+                        // A property value written on its own has no key separator.
+                        skip = !state.NeedKeySeparator;
+                        state.NeedKeySeparator = false;
+                    }
+
                     if (skip)
                     {
                         skipSeparators.EnsureCount((separatorIndex >> 6) + 1);
@@ -1828,15 +1908,10 @@ public sealed class Json5Document : Document
                     }
 
                     separatorIndex++;
-
-                    if (separator.SequenceEqual(":"u8))
-                    {
-                        state.NeedKeySeparator = false;
-                    }
                 }
             }
 
-            if (pendingCommaIndex >= 0 && state.HasEndToken)
+            if (pendingCommaIndex >= 0 && remainingEndTokenCount > 0)
             {
                 if (state.NeedValueSeparator)
                 {
@@ -1857,13 +1932,14 @@ public sealed class Json5Document : Document
                 writer.WriteSpaceIfIndented();
             }
 
-            while (state.HasEndToken)
+            while (remainingEndTokenCount > 0)
             {
                 writer.WriteIndentNewLine();
                 writer.WriteUtf8Byte(state.DequeueEndToken());
+                remainingEndTokenCount--;
             }
 
-            if (state.NeedValueSeparator)
+            if (state.NeedValueSeparator && !state.HasEndToken)
             {
                 state.NeedValueSeparator = false;
 
@@ -1871,22 +1947,50 @@ public sealed class Json5Document : Document
             }
 
             separatorIndex = 0;
+            var needsLineCommentTerminator = false;
 
             foreach (var triviaId in reader.EnumerateTrivia(tokenId))
             {
                 var trivia = reader.GetToken(triviaId);
+                var kind = trivia.TriviaKind;
+
+                if (trivia.IsExtended && kind != TriviaKind.Default &&
+                    kind != TriviaKind.LineComment && kind != TriviaKind.BlockComment)
+                {
+                    continue;
+                }
+
+                if (kind == TriviaKind.Whitespace)
+                {
+                    if (reader.ReadTrivia(triviaId).IndexOfAny((byte)'\r', (byte)'\n') >= 0)
+                    {
+                        needsLineCommentTerminator = false;
+                    }
+                    else if (needsLineCommentTerminator && (tokenId != document._tailId || state.HasEndToken))
+                    {
+                        // Keep edited whitespace outside the preceding line comment.
+                        writer.WriteNewLine();
+                        needsLineCommentTerminator = false;
+                    }
+                }
+                else if (kind == TriviaKind.LineComment ||
+                         kind == TriviaKind.BlockComment ||
+                         kind == TriviaKind.Default)
+                {
+                    // Parsed line comments keep their terminator in a separate
+                    // whitespace token, which may be absent at the end of input.
+                    if (needsLineCommentTerminator)
+                    {
+                        writer.WriteNewLine();
+                    }
+
+                    needsLineCommentTerminator = !trivia.IsExtended && kind != TriviaKind.BlockComment;
+                }
 
                 if (trivia.IsExtended)
                 {
-                    var kind = trivia.TriviaKind;
-
-                    if (kind == TriviaKind.LineComment ||
-                        kind == TriviaKind.BlockComment ||
-                        kind == TriviaKind.Default)
-                    {
-                        WriteTrivia(writer, reader, triviaId, ref state);
-                        writer.WriteNewLine();
-                    }
+                    WriteTrivia(writer, reader, triviaId, ref state);
+                    writer.WriteNewLine();
                 }
                 else
                 {
@@ -1901,10 +2005,42 @@ public sealed class Json5Document : Document
                         {
                             continue;
                         }
+
+                        if (needsLineCommentTerminator)
+                        {
+                            writer.WriteNewLine();
+                            needsLineCommentTerminator = false;
+                        }
+
+                        var separator = reader.ReadTrivia(triviaId);
+                        if (separator.SequenceEqual("}"u8) || separator.SequenceEqual("]"u8))
+                        {
+                            // Source trivia determines where to close a container.
+                            // Its delimiter may be stale after an edit, so use the
+                            // closing tokens queued by the current value structure.
+                            writer.WriteUtf8Byte(state.DequeueEndToken());
+                            state.HeadEndTokenEmpty = false;
+                            // A synthesized sibling comma belongs after every
+                            // pending container closer, including parsed ones.
+                            if (!state.HasEndToken && state.NeedValueSeparator)
+                            {
+                                state.NeedValueSeparator = false;
+                                writer.WriteUtf8Byte((byte)',');
+                            }
+
+                            continue;
+                        }
                     }
 
                     WriteTrivia(writer, reader, triviaId, ref state);
                 }
+            }
+
+            // Leading trivia must terminate a line comment before the value or key.
+            // A trailing line comment can end at EOF without an added newline.
+            if (needsLineCommentTerminator && (tokenId != document._tailId || state.HasEndToken))
+            {
+                writer.WriteNewLine();
             }
         }
     }
@@ -1998,7 +2134,8 @@ public sealed class Json5Document : Document
                             WriteTriviaList(writer, in reader, document, pair.Key, ref state);
                         }
 
-                        var keyKind = reader.GetToken(pair.Key).Variant;
+                        var keyToken = reader.GetToken(pair.Key);
+                        var keyKind = keyToken.Variant;
 
                         var qc = (char)0;
 
@@ -2042,7 +2179,9 @@ public sealed class Json5Document : Document
                         }
                         else
                         {
-                            var name = reader.ReadUtf8String(pair.Key);
+                            var name = keyToken.IsContainer
+                                ? JsonDocument.Encode(reader.ReadElement(pair.Key))
+                                : reader.ReadUtf8String(pair.Key);
 
                             if (qc == 0 && !IsEcmaScriptIdentity(name))
                             {
@@ -2221,6 +2360,18 @@ public sealed class Json5Document : Document
             if (Utf8Helper.TryParseHexadecimal(span, out var value))
             {
                 return value;
+            }
+        }
+        else if (token.Variant == DTokenVariant.IntegerUnsigned)
+        {
+            if (span[0] == '+')
+            {
+                span = span.Slice(1);
+            }
+
+            if (Utf8Parser.TryParse(span, out ulong value, out var bytes) && bytes == span.Length)
+            {
+                return unchecked((long)value);
             }
         }
         else
@@ -2427,7 +2578,7 @@ public sealed class Json5Document : Document
     {
         var token = GetToken(tokenId);
 
-        if (token.IsExtended)
+        if (token.IsExtended || token.IsContainer)
         {
             data = null;
             return false;
@@ -2456,7 +2607,7 @@ public sealed class Json5Document : Document
                     nameof(initialBuffer));
             }
 
-            var requiredWords = (maxDepth + 63) >> 6;
+            var requiredWords = ((maxDepth - 1) >> 6) + 1;
             var initialWords = Math.Min(initialBuffer.Length, requiredWords);
 
             _endTokenBits = initialBuffer.Slice(0, initialWords);
@@ -2522,38 +2673,6 @@ public sealed class Json5Document : Document
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool RemoveEndToken(byte token)
-        {
-            if (EndTokenCount == 0)
-            {
-                return false;
-            }
-
-            if (GetEndToken(_endTokenHead) != token)
-            {
-                return false;
-            }
-
-            HeadEndTokenEmpty = false;
-
-            _endTokenHead++;
-
-            if (_endTokenHead == Capacity)
-            {
-                _endTokenHead = 0;
-            }
-
-            EndTokenCount--;
-
-            if (EndTokenCount == 0)
-            {
-                _endTokenHead = 0;
-            }
-
-            return true;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private readonly byte GetEndToken(int index)
         {
             var word = index >> 6;
@@ -2588,7 +2707,7 @@ public sealed class Json5Document : Document
 
         private void ResizeEndTokenBuffer()
         {
-            var maxWords = (_maxDepth + 63) >> 6;
+            var maxWords = ((_maxDepth - 1) >> 6) + 1;
             var newWordCount = Math.Min(
                 _endTokenBits.Length * 2,
                 maxWords);

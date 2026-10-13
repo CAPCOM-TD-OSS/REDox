@@ -3,7 +3,6 @@
 
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -26,7 +25,7 @@ public abstract partial class Document : IDisposable
 
     public bool IsValid => RootId > 0;
 
-    protected uint RootId { get; set; }
+    protected internal uint RootId { get; set; }
 
     public SerializerSettings Settings { get; private set; }
 
@@ -48,7 +47,7 @@ public abstract partial class Document : IDisposable
 
     protected virtual void Dispose(bool disposing)
     {
-        Version++;
+        IncrementVersion();
 
         if (_tokens.Length > 0)
         {
@@ -80,7 +79,7 @@ public abstract partial class Document : IDisposable
     protected void Reset(SerializerSettings settings)
     {
         _tokenPt = 1;
-        Version++;
+        IncrementVersion();
         Settings = settings;
         RootId = 0;
         ClearExtensionInfo();
@@ -97,7 +96,6 @@ public abstract partial class Document : IDisposable
         doc._tokens = _tokens.AsSpan(0, _tokenPt).ToArray();
         doc.IsPooled = false;
         doc._parentTable = null;
-        doc._parentVersion = 0;
 
         var count = _extendCount;
 
@@ -125,9 +123,9 @@ public abstract partial class Document : IDisposable
                     doc._extends[i] = new DArray(new DElement(doc, arr.Id), arr);
                 }
             }
-            else if (v is List<uint> trivia)
+            else if (v is TriviaList trivia)
             {
-                doc._extends[i] = new List<uint>(trivia);
+                doc._extends[i] = new TriviaList(trivia);
             }
         }
 
@@ -210,7 +208,7 @@ public abstract partial class Document : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     protected internal uint AllocToken(DToken token)
     {
-        var tokenId = _tokenPt++;
+        var tokenId = _tokenPt;
         var tokens = _tokens;
 
         if (tokenId < tokens.Length)
@@ -223,6 +221,7 @@ public abstract partial class Document : IDisposable
             _tokens[tokenId] = token;
         }
 
+        _tokenPt++;
         return (uint)tokenId;
     }
 

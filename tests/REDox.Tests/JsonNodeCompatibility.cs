@@ -729,6 +729,7 @@ public sealed class JsonNodeCompatibility
             item.Add("First");
             item.Add("Second");
 
+            Assert.True(feed.IsValid);
             redoxJson = feed.ToString()!;
         }
 

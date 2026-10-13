@@ -104,6 +104,7 @@ public sealed partial class DArray : DContainer, IList<DValue>
         _element = element;
         _values = new uint[src.Count];
         _count = src._count;
+        TriviaId = src.TriviaId;
         Array.Copy(src._values, _values, _count);
     }
 

@@ -321,7 +321,7 @@ public class Json5WriteTest
                         }
                     case 1 when obj.Count > 0:
                         {
-                            var key = Enumerable.ElementAt(mObj, random.Next(mObj.Count)).Key;
+                            var key = mObj.ElementAt(random.Next(mObj.Count)).Key;
                             Assert.True(obj.Remove(key));
                             mObj.Remove(key);
                             break;
@@ -370,7 +370,7 @@ public class Json5WriteTest
                         break;
                     case 8 when obj.Count > 0:
                         {
-                            var key = Enumerable.ElementAt(mObj, random.Next(mObj.Count)).Key;
+                            var key = mObj.ElementAt(random.Next(mObj.Count)).Key;
                             var value = random.Next(100);
                             obj[key].ReplaceWith(new DObject { ["r"] = value });
                             mObj[key] = new JsonObject { ["r"] = value };

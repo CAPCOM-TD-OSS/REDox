@@ -14,7 +14,7 @@ public abstract partial class Document
     {
         private int _index;
         private uint _latestId;
-        private readonly List<uint>? _triviaList;
+        private readonly TriviaList? _triviaList;
 
         public uint Current { get; private set; }
 
@@ -39,7 +39,7 @@ public abstract partial class Document
 
                 if (triviaId > 0)
                 {
-                    _triviaList = (List<uint>)doc._extends[triviaId]!;
+                    _triviaList = (TriviaList)doc._extends[triviaId]!;
                     Count = _triviaList.Count;
                 }
             }
@@ -429,11 +429,17 @@ public abstract partial class Document
     {
         private TriviaTokenEnumerator _enumerator;
         private readonly Document _doc;
+        private readonly uint _tokenId;
+        private readonly int _documentVersion;
+        private readonly int _triviaVersion;
 
         public TriviaEnumerator(Document doc, uint id)
         {
             _enumerator = new TriviaTokenEnumerator(doc, id);
             _doc = doc;
+            _tokenId = id;
+            _documentVersion = doc.Version;
+            _triviaVersion = doc.GetElementTriviaVersion(id);
         }
 
         public DTrivia Current
@@ -441,9 +447,10 @@ public abstract partial class Document
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
+                ThrowIfInvalid();
                 var value = _enumerator.Current;
 
-                return new DTrivia(_doc, value);
+                return new DTrivia(_doc, value, _tokenId);
             }
         }
 
@@ -456,7 +463,16 @@ public abstract partial class Document
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool MoveNext()
         {
+            ThrowIfInvalid();
             return _enumerator.MoveNext();
+        }
+
+        private void ThrowIfInvalid()
+        {
+            if (_doc.Version != _documentVersion || _doc.GetElementTriviaVersion(_tokenId) != _triviaVersion)
+            {
+                throw new InvalidOperationException("The trivia collection changed during enumeration.");
+            }
         }
 
         public void Dispose()

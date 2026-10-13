@@ -46,6 +46,7 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
         _element = element;
         _values = src.KeyValuePairs.ToArray();
         _count = _values.Length;
+        TriviaId = src.TriviaId;
     }
 
     internal DMap(DElement element, DObject src)
@@ -53,6 +54,7 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
         _element = element;
         _values = src.KeyValuePairs.ToArray();
         _count = _values.Length;
+        TriviaId = src.TriviaId;
     }
 
     internal ReadOnlySpan<KeyValuePair<uint, uint>> KeyValuePairs => _values.AsSpan(0, _count);
