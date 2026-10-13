@@ -19,10 +19,10 @@ public class DomCreate
     public DArray REDoxCreateArrayIndexer()
     {
         var arr = new DArray(capacity: 4);
-        arr.Add(default);
-        arr.Add(default);
-        arr.Add(default);
-        arr.Add(default);
+        arr.Add(DValue.Null);
+        arr.Add(DValue.Null);
+        arr.Add(DValue.Null);
+        arr.Add(DValue.Null);
 
         arr[0] = 123;
         arr[1] = "My name";

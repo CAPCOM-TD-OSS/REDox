@@ -1,6 +1,7 @@
 <Project>
     <PropertyGroup>
         <Nullable>enable</Nullable>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <TargetFramework>net10.0</TargetFramework>
         <Company>CAPCOM CO., LTD.</Company>
         <Copyright>© CAPCOM CO., LTD. ALL RIGHTS RESERVED.</Copyright>

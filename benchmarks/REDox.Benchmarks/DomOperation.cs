@@ -48,7 +48,6 @@ public class DomOperation
         _doxArr = new DArray { 1, 2, 3 };
     }
 
-
     [Benchmark]
     [BenchmarkCategory(nameof(REDox))]
     public int REDoxAddArray()
@@ -120,9 +119,31 @@ public class DomOperation
     [BenchmarkCategory("STJ")]
     public void STJObjectReplace()
     {
+        var obj = new JsonObject { { "A", 1 }, { "B", true } };
         for (var i = 0; i < 10000; i++)
         {
-            _stnArr[0] = new JsonObject { { "A", 1 }, { "B", true } };
+            _stnArr[i % 3] = obj.DeepClone();
+        }
+    }
+
+
+    [Benchmark]
+    [BenchmarkCategory(nameof(REDox))]
+    public void REDoxObjectReplace2()
+    {
+        for (var i = 0; i < 10000; i++)
+        {
+            _doxArr[i % 3] = DValue.Create(new { A = 1, B = true });
+        }
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("STJ")]
+    public void STJObjectReplace2()
+    {
+        for (var i = 0; i < 10000; i++)
+        {
+            _stnArr[i % 3] = System.Text.Json.JsonSerializer.SerializeToNode(new { A = 1, B = true });
         }
     }
 
