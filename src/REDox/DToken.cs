@@ -162,7 +162,7 @@ public partial struct DToken : IEquatable<DToken>
         get => _value < 0;
     }
 
-    public bool IsEmpty => (ulong)_value >> 60 == 0b1000;
+    public bool IsEmpty => IsEmptyExtend || IsEmptyToken;
 
     public bool IsContainer
     {

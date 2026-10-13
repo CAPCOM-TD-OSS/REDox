@@ -19,7 +19,35 @@ public partial struct DToken
 
     internal bool IsLeadingTrivia => (ulong)_value >> 59 == 0b00001;
 
-    internal bool IsInlinePayload => IsExtended && (Kind == DTokenKind.InlineFloat || Variant.IsInherit);
+    // Extended trivia uses TriviaId as a flag to keep parsed slots out of the free lists.
+    internal bool IsTriviaReuseProhibited => Kind == DTokenKind.Trivia && IsExtended && TriviaId != 0;
+
+    // Container LinkId bits overlap the inline marker.
+    // InlineFloat uses the subkind bits for its exponent rather than a subtype.
+    internal bool HasInlineSubKind
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get
+        {
+            const uint inlineFloatHeader = 0x80u | ((uint)DTokenKind.InlineFloat << 3) | 7u;
+            var header = (uint)((ulong)_value >> 56);
+
+            // E=1 and Type<Map occupy [0x80, 0xE0). With marker 111, InlineFloat is 0xBF.
+            // Evaluate all three comparisons to avoid short-circuit branches.
+            return ((header & 7) == 7) & (unchecked(header - 0x80u) < 0x60u) & (header != inlineFloatHeader);
+        }
+    }
+
+    internal bool IsInlinePayload => IsExtended && !IsContainer && (Kind == DTokenKind.InlineFloat || Variant.IsInherit);
+
+    internal uint SubKind
+    {
+        get
+        {
+            Debug.Assert(Kind != DTokenKind.InlineFloat);
+            return (uint)GetInlineSubKind(Kind);
+        }
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static DToken MakeExtendContainer(DTokenType type, uint extendId, uint linkId = 0)
@@ -33,6 +61,7 @@ public partial struct DToken
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static DToken MakeExtendLiteral(DTokenVariant variant, uint triviaId)
     {
+        Debug.Assert(triviaId <= MaxExtendId);
         Debug.Assert(variant.ToType() == DTokenType.Literal);
         return new DToken(long.MinValue | ((long)variant << 56) | ((long)triviaId << 28));
     }
@@ -101,12 +130,12 @@ public partial struct DToken
     {
         get
         {
-            Debug.Assert(((int)Variant & 7) == 7 && IsExtended);
+            Debug.Assert(HasInlineSubKind);
             return (uint)(_value >> 53) & 7;
         }
         set
         {
-            Debug.Assert(((int)Variant & 7) == 7 && IsExtended);
+            Debug.Assert(HasInlineSubKind);
             _value &= ~0x00e00000_00000000;
             _value |= (long)value << 53;
         }
@@ -133,6 +162,7 @@ public partial struct DToken
         set
         {
             Debug.Assert(!IsInlinePayload && IsExtended && !IsContainer);
+            Debug.Assert(value <= MaxExtendId);
             _value &= ~0x00ffffff_f0000000L;
             _value |= (long)value << 28;
         }

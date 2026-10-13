@@ -12,6 +12,9 @@ public class TokenTest
     {
         var token = DToken.MakeExtendInlineSingle(FloatKind.Inherit, value);
 
+        Assert.True(token.HasInlineSubKind);
+        Assert.Equal((uint)FloatKind.Inherit, token.SubKind);
+
         var result = DToken.DecodeInlineSinglePayload(token);
 
         Assert.Equal(value, result);
@@ -36,10 +39,88 @@ public class TokenTest
     {
         var token = DToken.MakeExtendInlineInteger(IntegerKind.Hexadecimal, value);
 
+        Assert.True(token.HasInlineSubKind);
+        Assert.Equal((uint)IntegerKind.Hexadecimal, token.SubKind);
+
         var result = DToken.DecodeInlineIntegerPayload(token);
 
         Assert.Equal(value, result);
         Assert.Equal(IntegerKind.Hexadecimal, token.IntegerKind);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InlineFloatDoesNotHaveInlineSubKindEvenWithVariantMarker(bool extended)
+    {
+        const double value = 2147483648.1;
+        var payload = DToken.EncodeInlineFloatPayload(value);
+        Assert.True(payload >= 0);
+
+        var token = extended ? DToken.MakeExtendInlineFloat(payload) : DToken.MakeInlineFloat(payload);
+
+        Assert.Equal(7, (int)token.Variant & 7);
+        Assert.False(token.HasInlineSubKind);
+        Assert.Equal(extended, token.IsInlinePayload);
+        Assert.Equal(value, DToken.DecodeInlineFloatPayload(token));
+    }
+
+    [Fact]
+    public void SourceBackedInheritMarkerDoesNotHaveInlineSubKind()
+    {
+        var token = DToken.Make(IntegerKind.Inherit.ToVariant(), 0);
+
+        Assert.False(token.HasInlineSubKind);
+        Assert.False(token.IsInlinePayload);
+        Assert.Equal((uint)IntegerKind.Default, token.SubKind);
+        Assert.Equal(IntegerKind.Default, token.IntegerKind);
+    }
+
+    [Fact]
+    public void InlineSubKindClassificationMatchesAllHeaderPatterns()
+    {
+        for (var header = 0; header < 256; header++)
+        {
+            // E=1, marker=111, and a non-container Kind other than InlineFloat.
+            var expected = header is 0x87 or 0x8f or 0x97 or 0x9f or 0xa7 or 0xaf or 0xb7
+                or 0xc7 or 0xcf or 0xd7 or 0xdf;
+
+            foreach (var payload in new[] { 0L, 0x001fffffffffffffL, 0x00ffffffffffffffL })
+            {
+                var token = new DToken(((long)header << 56) | payload);
+
+                Assert.Equal(expected, token.HasInlineSubKind);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(DTokenType.Map, 0x1bffffff)]
+    [InlineData(DTokenType.Map, 0x1c000000)]
+    [InlineData(DTokenType.Map, 0x1fffffff)]
+    [InlineData(DTokenType.Map, 0x20000000)]
+    [InlineData(DTokenType.Map, 0x3bffffff)]
+    [InlineData(DTokenType.Map, 0x3c000000)]
+    [InlineData(DTokenType.Map, 0x3fffffff)]
+    [InlineData(DTokenType.Array, 0x1bffffff)]
+    [InlineData(DTokenType.Array, 0x1c000000)]
+    [InlineData(DTokenType.Array, 0x1fffffff)]
+    [InlineData(DTokenType.Array, 0x20000000)]
+    [InlineData(DTokenType.Array, 0x3bffffff)]
+    [InlineData(DTokenType.Array, 0x3c000000)]
+    [InlineData(DTokenType.Array, 0x3fffffff)]
+    public void ExtendedContainerIsNotInlineRegardlessOfLinkId(DTokenType type, uint linkId)
+    {
+        var token = DToken.MakeExtendContainer(type, 1, linkId);
+
+        Assert.True(token.IsExtended);
+        Assert.True(token.IsContainer);
+        Assert.Equal(type, token.Type);
+        Assert.Equal(linkId, token.LinkId);
+        Assert.Equal(1u, token.ExtendId);
+        Assert.False(token.HasInlineSubKind);
+        Assert.False(token.IsInlinePayload);
+        Assert.False(token.IsExtendInlineLiteral);
     }
 
     [Fact]
