@@ -152,15 +152,14 @@ public sealed class MessagePackWriter : DataWriter, IDisposable, IAsyncDisposabl
 
     public override void WriteDateTime(DateTime value)
     {
-        NextElement();
         if (OldSpec)
         {
             WriteInt64(value.ToBinary());
+            return;
         }
-        else
-        {
-            WriteDateTimeValue(_writer, value);
-        }
+
+        NextElement();
+        WriteDateTimeValue(_writer, value);
     }
 
     public override void WriteDateTimeOffset(DateTimeOffset value)
@@ -860,42 +859,35 @@ public sealed class MessagePackWriter : DataWriter, IDisposable, IAsyncDisposabl
     private static void WriteDateTimeValue(DocumentWriter writer, DateTime value)
     {
         var tick = value.ToUniversalTime().Ticks;
+        // Split absolute ticks first so dates before the epoch also have a
+        // nonnegative nanosecond component and seconds rounded down.
+        var sec = tick / TimeSpan.TicksPerSecond - DateTime.UnixEpoch.Ticks / TimeSpan.TicksPerSecond;
+        var nanoSec = (uint)(tick % TimeSpan.TicksPerSecond * 100L);
 
-        if (tick < 621355968000000000L)
+        if (sec >= 0 && sec <= uint.MaxValue && nanoSec == 0)
         {
-            var nanoSec = tick % 10000000L * 100L;
-            var sec = (ulong)tick / 10000000L + 18446744011573954816UL;
+            var buf = writer.Allocate(6);
+            buf[0] = (byte)MessagePackCode.FixExt4;
+            buf[1] = 0xff;
+            BinaryPrimitives.WriteUInt32BigEndian(buf.Slice(2), (uint)sec);
+        }
+        else if (sec >= 0 && sec < 1L << 34)
+        {
+            var data64 = ((ulong)nanoSec << 34) | (ulong)sec;
 
+            var buf = writer.Allocate(10);
+            buf[0] = (byte)MessagePackCode.FixExt8;
+            buf[1] = 0xff;
+            BinaryPrimitives.WriteUInt64BigEndian(buf.Slice(2), data64);
+        }
+        else
+        {
             var buf = writer.Allocate(15);
             buf[0] = (byte)MessagePackCode.Ext8;
             buf[1] = 12;
             buf[2] = 0xff;
-            BinaryPrimitives.WriteUInt32BigEndian(buf.Slice(3), (uint)nanoSec);
-            BinaryPrimitives.WriteUInt64BigEndian(buf.Slice(7), sec);
-        }
-        else
-        {
-            tick -= 621355968000000000L;
-
-            var sec = tick / 10000000L;
-            var nanoSec = tick % 10000000L * 100L;
-
-            if (nanoSec == 0)
-            {
-                var buf = writer.Allocate(6);
-                buf[0] = (byte)MessagePackCode.FixExt4;
-                buf[1] = 0xff;
-                BinaryPrimitives.WriteUInt32BigEndian(buf.Slice(2), (uint)sec);
-            }
-            else
-            {
-                var data64 = (nanoSec << 34) | sec;
-
-                var buf = writer.Allocate(10);
-                buf[0] = (byte)MessagePackCode.FixExt8;
-                buf[1] = 0xff;
-                BinaryPrimitives.WriteUInt64BigEndian(buf.Slice(2), (ulong)data64);
-            }
+            BinaryPrimitives.WriteUInt32BigEndian(buf.Slice(3), nanoSec);
+            BinaryPrimitives.WriteInt64BigEndian(buf.Slice(7), sec);
         }
     }
 

@@ -1181,15 +1181,10 @@ public sealed class MessagePackDocument : Document
             case 13: // nanoseconds in 32-bit unsigned int | seconds in 64 - bit signed int
                 {
                     var nsec = BinaryPrimitives.ReadUInt32BigEndian(_source.Span.Slice(param.offset + 1, 4));
-                    var sec = BinaryPrimitives.ReadUInt64BigEndian(_source.Span.Slice(param.offset + 5, 8));
-                    if (sec < 18446744011573954816UL)
-                    {
-                        throw new OverflowException();
-                    }
+                    var sec = BinaryPrimitives.ReadInt64BigEndian(_source.Span.Slice(param.offset + 5, 8));
+                    var ticks = checked(sec * TimeSpan.TicksPerSecond + nsec / 100L + DateTime.UnixEpoch.Ticks);
 
-                    sec -= 18446744011573954816UL;
-
-                    return new DateTime((long)sec * 10000000L + nsec / 100L, DateTimeKind.Utc);
+                    return new DateTime(ticks, DateTimeKind.Utc);
                 }
         }
 
