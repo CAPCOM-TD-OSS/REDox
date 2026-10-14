@@ -650,18 +650,30 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private (Document?, uint) GetElementInfo()
     {
-        ThrowIfInvalid();
+        if (Instance is Document doc)
+        {
+            var id = (uint)Payload;
+            if (id == 0 || !doc.IsValid ||
+                (doc.Version != (int)(Payload >> 32) && id != doc.RootId))
+            {
+                throw new ObjectDisposedException(nameof(DValue));
+            }
+
+            return (doc, id);
+        }
 
         if (Instance is DContainer container)
         {
-            return (container.Document, (uint)Payload);
+            var id = (uint)Payload;
+            if (!container.ValidateValue((int)(Payload >> 32), id))
+            {
+                throw new ObjectDisposedException(nameof(DValue));
+            }
+
+            return (container.Document, id);
         }
 
-        if (Instance is Document doc)
-        {
-            return (doc, (uint)Payload);
-        }
-
+        ThrowIfInvalid();
         return default;
     }
 

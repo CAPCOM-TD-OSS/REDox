@@ -184,7 +184,7 @@ public abstract partial class Document
 
         return arr;
     }
-    
+
     private void BuildParentTable(uint[] parentTable, uint rootId)
     {
         using var stack = new Helper.LocalStack<uint>(stackalloc uint[64], int.MaxValue);
@@ -2608,7 +2608,6 @@ public abstract partial class Document
             $"Cannot convert value {new DElement(this, tokenId)} to {typeof(decimal)}");
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal double GetFloatingValue(uint tokenId)
     {
         if (TryGetFloatingExact(tokenId, out var value))
