@@ -4,6 +4,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -1663,6 +1664,10 @@ public sealed class TomlDocument : Document
                     }
 
                     break;
+                case DTokenKind.ByteString:
+                    WriteTomlString(writer, StringKind.Default,
+                        Utf8Helper.EncodeByteString(reader.ReadByteString(valueId), token.ByteStringKind));
+                    break;
                 case DTokenKind.Timestamp:
                     if (doc != null && doc.GetRawData(valueId, out var datedata))
                     {
@@ -1670,8 +1675,10 @@ public sealed class TomlDocument : Document
                     }
                     else
                     {
-                        writer.WriteString(reader.ReadDateTime(valueId).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'",
-                            CultureInfo.InvariantCulture));
+                        Span<byte> buffer = stackalloc byte[Utf8Helper.TimestampBufferSize];
+                        var success = Utf8Helper.TryFormatTimestamp(reader, valueId, buffer, out var bytesWritten);
+                        Debug.Assert(success);
+                        writer.WriteString(buffer.Slice(0, bytesWritten));
                     }
 
                     break;
@@ -2274,7 +2281,10 @@ public sealed class TomlDocument : Document
 
     protected override DateTimeOffset DecodeDateTimeOffset(DToken token)
     {
-        return DecodeDateTime(token);
+        var param = DToken.DecodeLengthOffsetPayload(token);
+        var span = _source.Span.Slice(param.offset, param.length);
+
+        return DateTimeOffset.Parse(Encoding.UTF8.GetString(span), CultureInfo.InvariantCulture);
     }
 
     protected override DateTime DecodeDateTime(DToken token)

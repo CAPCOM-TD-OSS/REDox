@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Globalization;
+using System.Text;
+using REDox.Serialization;
 
 namespace REDox.Toml.Tests;
 
@@ -141,7 +143,123 @@ public sealed class TomlValueTest
         Assert.Equal(expected, ParseValue(toml).GetBoolean());
     }
 
+    [Theory]
+    [InlineData("00112233-4455-6677-8899-aabbccddeeff")]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    public void Guid_ShouldEncodeAsString(string text)
+    {
+        var guid = Guid.Parse(text);
+        var value = new DObject { { "v", guid } };
+        var options = new TomlWriteOptions { NewLine = "\n" };
+
+        var encoded = TomlDocument.EncodeToString(value, options);
+
+        Assert.Equal($"v=\"{text}\"\n", encoded);
+        using var parsed = TomlDocument.Parse(encoded, options: new TomlDocumentOptions { EnableValueValidation = true });
+        Assert.Equal(text, parsed.RootElement.GetProperty("v").GetString());
+
+        parsed.RootElement.AsObject()["v"] = guid;
+        Assert.Equal(encoded, TomlDocument.EncodeToString(parsed.RootElement, options));
+    }
+
+    [Theory]
+    [InlineData(ByteStringKind.Default, "aGVsbG8=")]
+    [InlineData(ByteStringKind.Base64, "aGVsbG8=")]
+    [InlineData(ByteStringKind.Base64Url, "aGVsbG8")]
+    [InlineData(ByteStringKind.Base16, "68656C6C6F")]
+    [InlineData(ByteStringKind.Raw, "hello")]
+    public void ByteString_ShouldEncodeAsString(ByteStringKind kind, string expected)
+    {
+        var value = new DObject { { "v", DValue.Create(Encoding.UTF8.GetBytes("hello"), kind) } };
+        var encoded = TomlDocument.EncodeToString(value, new TomlWriteOptions { NewLine = "\n" });
+
+        Assert.Equal($"v=\"{expected}\"\n", encoded);
+        using var parsed = TomlDocument.Parse(encoded, options: new TomlDocumentOptions { EnableValueValidation = true });
+        Assert.Equal(expected, parsed.RootElement.GetProperty("v").GetString());
+    }
+
+    [Fact]
+    public void RawByteString_ShouldEscapeTomlCharacters()
+    {
+        const string text = "quote: \" slash: \\ tab: \t newline: \n";
+        var value = new DObject { { "v", DValue.Create(Encoding.UTF8.GetBytes(text), ByteStringKind.Raw) } };
+        var encoded = TomlDocument.EncodeToString(value);
+
+        using var parsed = TomlDocument.Parse(encoded, options: new TomlDocumentOptions { EnableValueValidation = true });
+        Assert.Equal(text, parsed.RootElement.GetProperty("v").GetString());
+    }
+
     // ---- Date / Time ----
+
+    [Theory]
+    [InlineData(TimestampKind.LocalDate, "2026-10-04")]
+    [InlineData(TimestampKind.LocalTime, "12:34:56.1234567")]
+    [InlineData(TimestampKind.LocalDateTime, "2026-10-04T12:34:56.1234567")]
+    [InlineData(TimestampKind.OffsetDateTime, "2026-10-04T12:34:56.1234567+00:00")]
+    public void Timestamp_ShouldPreserveExplicitKind(TimestampKind kind, string expected)
+    {
+        using var doc = TomlDocument.Parse("v=2000-01-01", new DoxSerializerSettings
+        {
+            Culture = CultureInfo.GetCultureInfo("th-TH"),
+            DateFormatString = "dddd",
+            DateFormatHandling = DateFormatHandling.MicrosoftDateFormat,
+            DateTimeZoneHandling = DateTimeZoneHandling.Local
+        });
+        doc.RootElement.AsObject()["v"] =
+            DValue.Create(new DateTime(2026, 10, 4, 12, 34, 56, DateTimeKind.Utc).AddTicks(1234567), kind);
+
+        var encoded = TomlDocument.EncodeToString(doc.RootElement, new TomlWriteOptions { NewLine = "\n" });
+
+        Assert.Equal($"v={expected}\n", encoded);
+        using var parsed = TomlDocument.Parse(encoded, options: new TomlDocumentOptions { EnableValueValidation = true });
+        Assert.Equal(kind, parsed.RootElement.GetProperty("v").AsValue().GetToken().TimestampKind);
+    }
+
+    [Theory]
+    [InlineData(330, "+05:30")]
+    [InlineData(-420, "-07:00")]
+    [InlineData(0, "+00:00")]
+    public void DateTimeOffset_ShouldPreserveOffsetAndFractionalSeconds(int offsetMinutes, string suffix)
+    {
+        var timestamp = new DateTimeOffset(2026, 10, 4, 12, 34, 56, TimeSpan.FromMinutes(offsetMinutes))
+            .AddTicks(1234567);
+        var value = new DObject { { "v", timestamp } };
+        var encoded = TomlDocument.EncodeToString(value, new TomlWriteOptions { NewLine = "\n" });
+
+        Assert.Equal($"v=2026-10-04T12:34:56.1234567{suffix}\n", encoded);
+        using var parsed = TomlDocument.Parse(encoded, options: new TomlDocumentOptions { EnableValueValidation = true });
+        var result = parsed.RootElement.GetProperty("v").GetDateTimeOffset();
+        Assert.Equal(timestamp.Ticks, result.Ticks);
+        Assert.Equal(timestamp.Offset, result.Offset);
+    }
+
+    [Theory]
+    [InlineData(DateTimeKind.Utc, "Z")]
+    [InlineData(DateTimeKind.Unspecified, "")]
+    public void DateTime_ShouldPreserveFractionalSecondsAndZone(DateTimeKind kind, string suffix)
+    {
+        var timestamp = new DateTime(2026, 10, 4, 12, 34, 56, kind).AddTicks(1);
+        var value = new DObject { { "v", timestamp } };
+        var encoded = TomlDocument.EncodeToString(value, new TomlWriteOptions { NewLine = "\n" });
+
+        Assert.Equal($"v=2026-10-04T12:34:56.0000001{suffix}\n", encoded);
+        using var parsed = TomlDocument.Parse(encoded, options: new TomlDocumentOptions { EnableValueValidation = true });
+        Assert.Equal(timestamp.Ticks, parsed.RootElement.GetProperty("v").GetDateTime().Ticks);
+    }
+
+    [Theory]
+    [InlineData("2026-10-04")]
+    [InlineData("12:34:56.1234567")]
+    [InlineData("2026-10-04T12:34:56.1234567")]
+    [InlineData("2026-10-04T12:34:56.1234567Z")]
+    [InlineData("2026-10-04T12:34:56.1234567+05:30")]
+    public void ParsedTimestamp_ShouldPreserveOriginalRepresentation(string text)
+    {
+        using var doc = TomlDocument.Parse($"v={text}");
+
+        Assert.Equal($"v={text}\n",
+            TomlDocument.EncodeToString(doc.RootElement, new TomlWriteOptions { NewLine = "\n" }));
+    }
 
     [Theory]
     [InlineData("pt-BR")]
