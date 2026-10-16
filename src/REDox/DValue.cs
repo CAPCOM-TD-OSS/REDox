@@ -1,10 +1,11 @@
-﻿// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
+// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -517,10 +518,8 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public string GetPath()
     {
-        ThrowIfInvalid();
-
-        var ss = new StringBuilder();
         var (doc, id) = GetElementInfo();
+        var ss = new StringBuilder();
 
         if (doc == null)
         {
@@ -576,9 +575,7 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
     {
         get
         {
-            ThrowIfInvalid();
-
-            var (doc, id) = GetElementInfo();
+            var (doc, _) = GetElementInfo();
 
             if (doc == null)
             {
@@ -593,8 +590,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
     {
         get
         {
-            ThrowIfInvalid();
-
             var (doc, id) = GetElementInfo();
 
             if (doc == null)
@@ -654,17 +649,42 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private (Document?, uint) GetElementInfo()
     {
-        if (Instance is Document doc)
-        {
-            return (doc, (uint)Payload);
-        }
-
         if (Instance is DContainer container)
         {
+            if (!container.ValidateValue((int)Payload))
+            {
+                ThrowInvalid();
+            }
+
             return (container.Document, GetContainerValueId(container));
         }
 
+        if (Instance is Document doc)
+        {
+            var id = (uint)Payload;
+
+            if (id == 0 || !doc.IsValid ||
+                (doc.Version != (int)(Payload >> 32) && id != doc.RootId))
+            {
+                ThrowInvalid();
+            }
+
+            return (doc, id);
+        }
+
+        if (Instance == null && Payload == 0)
+        {
+            ThrowInvalid();
+        }
+
         return default;
+    }
+
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ThrowInvalid()
+    {
+        throw new ObjectDisposedException(nameof(DValue));
     }
 
     public DValue this[int index]
@@ -975,8 +995,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator Guid(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1016,8 +1034,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator bool(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1058,8 +1074,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator char(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1087,8 +1101,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator byte(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1133,8 +1145,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator sbyte(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1179,8 +1189,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator short(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1225,8 +1233,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator ushort(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1271,8 +1277,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator int(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1317,8 +1321,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator uint(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1364,8 +1366,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator long(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1405,8 +1405,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator ulong(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1446,8 +1444,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator string?(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1484,8 +1480,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator float(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1528,8 +1522,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator double(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1573,8 +1565,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator decimal(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1614,8 +1604,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator DateTime(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1658,8 +1646,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator DateTimeOffset(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
@@ -1699,8 +1685,6 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
 
     public static explicit operator ReadOnlySpan<byte>(DValue value)
     {
-        value.ThrowIfInvalid();
-
         var (doc, id) = value.GetElementInfo();
 
         if (doc == null)
