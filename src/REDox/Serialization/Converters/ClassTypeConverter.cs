@@ -175,6 +175,8 @@ sealed class ClassTypeConverter : DataConverterFactory
             var ignoreCase = reader.Settings.PropertyNameCaseInsensitive;
             var typeHandling = _contract.IsPolymorphic;
             var refId = 0U;
+            uint unmappedKeyId = 0;
+            uint unmappedValueId = 0;
             var maskSize = _maskSize;
 
             Span<ulong> readMask = stackalloc ulong[maskSize];
@@ -224,9 +226,20 @@ sealed class ClassTypeConverter : DataConverterFactory
 
                                         break;
                                     case UnmappedMemberHandling.Disallow:
-                                        reader.HandleException(SerializationError.UnmappedMember, null, instance,
-                                            _contract, Utf8Helper.GetUtf16String(name),
-                                            kv.Value);
+                                        if (typeHandling)
+                                        {
+                                            if (unmappedKeyId == 0)
+                                            {
+                                                unmappedKeyId = kv.Key;
+                                                unmappedValueId = kv.Value;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            reader.HandleException(SerializationError.UnmappedMember, null, instance,
+                                                _contract, Utf8Helper.GetUtf16String(name), kv.Value);
+                                        }
+
                                         break;
                                 }
                             }
@@ -248,6 +261,11 @@ sealed class ClassTypeConverter : DataConverterFactory
                             list.Add((prop.Id, kv.Value));
                         }
                     }
+                }
+
+                if (unmappedKeyId != 0)
+                {
+                    HandleUnmappedMembers(reader, tokenId, unmappedKeyId, unmappedValueId, instance);
                 }
 
                 instance = existingValue == null || _anonymousType
@@ -307,9 +325,12 @@ sealed class ClassTypeConverter : DataConverterFactory
             else
             {
                 var first = true;
+                var referenceMetadataRead = false;
+                var enumerator = reader.EnumerateMap(tokenId);
 
-                foreach (var kv in reader.EnumerateMap(tokenId))
+                while (enumerator.MoveNext())
                 {
+                    var kv = enumerator.Current;
                     var name = reader.ReadUtf8String(kv.Key);
                     var prop = FindProperty(name, ignoreCase);
 
@@ -339,8 +360,20 @@ sealed class ClassTypeConverter : DataConverterFactory
                         switch (_contract.UnmappedMemberHandling)
                         {
                             case UnmappedMemberHandling.Disallow:
-                                reader.HandleException(SerializationError.UnmappedMember, null, instance, _contract,
-                                    Utf8Helper.GetUtf16String(name), kv.Value);
+                                if (typeHandling)
+                                {
+                                    if (unmappedKeyId == 0)
+                                    {
+                                        unmappedKeyId = kv.Key;
+                                        unmappedValueId = kv.Value;
+                                    }
+                                }
+                                else
+                                {
+                                    reader.HandleException(SerializationError.UnmappedMember, null, instance, _contract,
+                                        Utf8Helper.GetUtf16String(name), kv.Value);
+                                }
+
                                 break;
                         }
 
@@ -353,6 +386,25 @@ sealed class ClassTypeConverter : DataConverterFactory
 
                     if (first)
                     {
+                        // Resolve reference metadata before creating or registering an instance.
+                        // Leading $id on a non-polymorphic contract already supplies everything needed.
+                        if (!referenceMetadataRead &&
+                            reader.Settings.PreserveReferencesHandling != PreserveReferencesHandling.None &&
+                            (refId == 0 || typeHandling))
+                        {
+                            referenceMetadataRead = true;
+                            if (ReadReferenceMetadata(reader, enumerator, tokenId, ref refId, ref existingValue))
+                            {
+                                return existingValue;
+                            }
+                        }
+
+                        // An abstract contract may be resolved by a discriminator later in the map.
+                        if (typeHandling && _defaultConstructor == null && existingValue == null)
+                        {
+                            continue;
+                        }
+
                         first = false;
                         instance = existingValue ?? CreateInstance();
 
@@ -402,6 +454,11 @@ sealed class ClassTypeConverter : DataConverterFactory
                         reader.HandleException(SerializationError.FailedToRead, e, instance, _contract, prop.Info,
                             kv.Value);
                     }
+                }
+
+                if (unmappedKeyId != 0)
+                {
+                    HandleUnmappedMembers(reader, tokenId, unmappedKeyId, unmappedValueId, instance);
                 }
 
                 if (first)
@@ -471,6 +528,69 @@ sealed class ClassTypeConverter : DataConverterFactory
             }
 
             return instance;
+        }
+
+        private bool ReadReferenceMetadata(in DataReader reader, Document.KeyValueEnumerator enumerator, uint tokenId,
+            ref uint refId, ref T? value)
+        {
+            // The enumerator is a copy; normal property reading resumes at the current member.
+            while (enumerator.MoveNext())
+            {
+                var kv = enumerator.Current;
+                var name = reader.ReadUtf8String(kv.Key);
+                if (_contract.IsPolymorphic && name.SequenceEqual(_contract.TypeDiscriminatorPropertyName))
+                {
+                    if (FindProperty(name, reader.Settings.PropertyNameCaseInsensitive) == null &&
+                        reader.ReadTypedObject(_contract, tokenId, kv.Value, ref value))
+                    {
+                        return true;
+                    }
+                }
+                else if (name.SequenceEqual(Utf8Helper.RefTag))
+                {
+                    if (FindProperty(name, reader.Settings.PropertyNameCaseInsensitive) == null)
+                    {
+                        value = (T?)reader.ReadReference(kv.Value);
+                        return true;
+                    }
+                }
+                else if (name.SequenceEqual(Utf8Helper.IdTag) &&
+                         FindProperty(name, reader.Settings.PropertyNameCaseInsensitive) == null)
+                {
+                    refId = kv.Value;
+                }
+            }
+
+            return false;
+        }
+
+        private void HandleUnmappedMembers(in DataReader reader, uint tokenId, uint firstKeyId, uint firstValueId,
+            T? instance)
+        {
+            reader.HandleException(SerializationError.UnmappedMember, null, instance, _contract,
+                Utf8Helper.GetUtf16String(reader.ReadUtf8String(firstKeyId)), firstValueId);
+
+            // The first error normally throws. Only handled errors require finding subsequent members.
+            var afterFirst = false;
+            foreach (var kv in reader.EnumerateMap(tokenId))
+            {
+                if (!afterFirst)
+                {
+                    afterFirst = kv.Key == firstKeyId;
+                    continue;
+                }
+
+                var name = reader.ReadUtf8String(kv.Key);
+                if (FindProperty(name, reader.Settings.PropertyNameCaseInsensitive) != null ||
+                    name.SequenceEqual(_contract.TypeDiscriminatorPropertyName) ||
+                    name.SequenceEqual(Utf8Helper.IdTag) || name.SequenceEqual(Utf8Helper.RefTag))
+                {
+                    continue;
+                }
+
+                reader.HandleException(SerializationError.UnmappedMember, null, instance, _contract,
+                    Utf8Helper.GetUtf16String(name), kv.Value);
+            }
         }
 
         private void ReadExtensionData(in DataReader reader, T instance, uint keyId, uint valueId)
@@ -1237,6 +1357,8 @@ sealed class ClassTypeConverter : DataConverterFactory
             var ignoreCase = reader.Settings.PropertyNameCaseInsensitive;
             var typeHandling = _contract.IsPolymorphic;
             var refId = 0U;
+            uint unmappedKeyId = 0;
+            uint unmappedValueId = 0;
             var requiredMask = _requiredMask == null ? null : (ulong[])_requiredMask.Clone();
             object? instance = null;
             List<(uint keyId, uint valueId)>? extensionList = null;
@@ -1273,8 +1395,19 @@ sealed class ClassTypeConverter : DataConverterFactory
                             }
                             else if (reader.Settings.UnmappedMemberHandling == UnmappedMemberHandling.Disallow)
                             {
-                                reader.HandleException(SerializationError.UnmappedMember, null, instance,
-                                    _contract, _property, kv.Value);
+                                if (typeHandling)
+                                {
+                                    if (unmappedKeyId == 0)
+                                    {
+                                        unmappedKeyId = kv.Key;
+                                        unmappedValueId = kv.Value;
+                                    }
+                                }
+                                else
+                                {
+                                    reader.HandleException(SerializationError.UnmappedMember, null, instance,
+                                        _contract, _property, kv.Value);
+                                }
                             }
                             else if (_extensionData != null)
                             {
@@ -1294,6 +1427,11 @@ sealed class ClassTypeConverter : DataConverterFactory
                             list.Add((prop.Id, kv.Value));
                         }
                     }
+                }
+
+                if (unmappedKeyId != 0)
+                {
+                    HandleUnmappedMembers(reader, tokenId, unmappedKeyId, unmappedValueId, instance);
                 }
 
                 instance = existingValue == null || _anonymousType || _valueType
@@ -1317,9 +1455,12 @@ sealed class ClassTypeConverter : DataConverterFactory
             else
             {
                 var first = true;
+                var referenceMetadataRead = false;
+                var enumerator = reader.EnumerateMap(tokenId);
 
-                foreach (var kv in reader.EnumerateMap(tokenId))
+                while (enumerator.MoveNext())
                 {
+                    var kv = enumerator.Current;
                     var name = reader.ReadUtf8String(kv.Key);
                     var prop = FindProperty(name, ignoreCase);
 
@@ -1349,8 +1490,20 @@ sealed class ClassTypeConverter : DataConverterFactory
                         switch (reader.Settings.UnmappedMemberHandling)
                         {
                             case UnmappedMemberHandling.Disallow:
-                                reader.HandleException(SerializationError.UnmappedMember, null, instance,
-                                    _contract, Utf8Helper.GetUtf16String(name), kv.Value);
+                                if (typeHandling)
+                                {
+                                    if (unmappedKeyId == 0)
+                                    {
+                                        unmappedKeyId = kv.Key;
+                                        unmappedValueId = kv.Value;
+                                    }
+                                }
+                                else
+                                {
+                                    reader.HandleException(SerializationError.UnmappedMember, null, instance,
+                                        _contract, Utf8Helper.GetUtf16String(name), kv.Value);
+                                }
+
                                 break;
                             default:
                                 if (_extensionData != null)
@@ -1370,6 +1523,22 @@ sealed class ClassTypeConverter : DataConverterFactory
 
                     if (first)
                     {
+                        if (!referenceMetadataRead &&
+                            reader.Settings.PreserveReferencesHandling != PreserveReferencesHandling.None &&
+                            (refId == 0 || typeHandling))
+                        {
+                            referenceMetadataRead = true;
+                            if (ReadReferenceMetadata(reader, enumerator, tokenId, ref refId, ref existingValue))
+                            {
+                                return existingValue;
+                            }
+                        }
+
+                        if (typeHandling && _abstractType && existingValue == null)
+                        {
+                            continue;
+                        }
+
                         first = false;
                         instance = existingValue ?? CreateInstance();
 
@@ -1388,6 +1557,11 @@ sealed class ClassTypeConverter : DataConverterFactory
 
                     ClearRequired(requiredMask, prop.Id);
                     ReadPropertyWithErrorHandling(reader, prop, instance!, kv.Value);
+                }
+
+                if (unmappedKeyId != 0)
+                {
+                    HandleUnmappedMembers(reader, tokenId, unmappedKeyId, unmappedValueId, instance);
                 }
 
                 if (first)
@@ -1428,6 +1602,67 @@ sealed class ClassTypeConverter : DataConverterFactory
             InvokeCallbacks(_contract.OnDeserializedCallbacks, instance!, reader.Settings.Context);
 
             return instance;
+        }
+
+        private bool ReadReferenceMetadata(in DataReader reader, Document.KeyValueEnumerator enumerator, uint tokenId,
+            ref uint refId, ref object? value)
+        {
+            while (enumerator.MoveNext())
+            {
+                var kv = enumerator.Current;
+                var name = reader.ReadUtf8String(kv.Key);
+                if (_contract.IsPolymorphic && name.SequenceEqual(_contract.TypeDiscriminatorPropertyName))
+                {
+                    if (FindProperty(name, reader.Settings.PropertyNameCaseInsensitive) == null &&
+                        reader.ReadTypedObject(_contract, _type, tokenId, kv.Value, ref value))
+                    {
+                        return true;
+                    }
+                }
+                else if (name.SequenceEqual(Utf8Helper.RefTag))
+                {
+                    if (FindProperty(name, reader.Settings.PropertyNameCaseInsensitive) == null)
+                    {
+                        value = reader.ReadReference(kv.Value);
+                        return true;
+                    }
+                }
+                else if (name.SequenceEqual(Utf8Helper.IdTag) &&
+                         FindProperty(name, reader.Settings.PropertyNameCaseInsensitive) == null)
+                {
+                    refId = kv.Value;
+                }
+            }
+
+            return false;
+        }
+
+        private void HandleUnmappedMembers(in DataReader reader, uint tokenId, uint firstKeyId, uint firstValueId,
+            object? instance)
+        {
+            reader.HandleException(SerializationError.UnmappedMember, null, instance, _contract,
+                Utf8Helper.GetUtf16String(reader.ReadUtf8String(firstKeyId)), firstValueId);
+
+            var afterFirst = false;
+            foreach (var kv in reader.EnumerateMap(tokenId))
+            {
+                if (!afterFirst)
+                {
+                    afterFirst = kv.Key == firstKeyId;
+                    continue;
+                }
+
+                var name = reader.ReadUtf8String(kv.Key);
+                if (FindProperty(name, reader.Settings.PropertyNameCaseInsensitive) != null ||
+                    name.SequenceEqual(_contract.TypeDiscriminatorPropertyName) ||
+                    name.SequenceEqual(Utf8Helper.IdTag) || name.SequenceEqual(Utf8Helper.RefTag))
+                {
+                    continue;
+                }
+
+                reader.HandleException(SerializationError.UnmappedMember, null, instance, _contract,
+                    Utf8Helper.GetUtf16String(name), kv.Value);
+            }
         }
 
         private void WriteData(DataWriter writer, object value, bool typeNeeded)

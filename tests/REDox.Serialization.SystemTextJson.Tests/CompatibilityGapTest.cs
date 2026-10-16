@@ -390,6 +390,26 @@ public class CompatibilityGapTest
         Assert.Equal(JsonSerializer.Serialize(node, options), SerializeByRedox(node, options));
     }
 
+    [Theory]
+    [InlineData(true, "{\"Next\":{\"$ref\":\"node\"},\"Id\":1,\"$id\":\"node\"}")]
+    [InlineData(false, "{\"Next\":{\"$ref\":\"node\"},\"Id\":1,\"$id\":\"node\"}")]
+    [InlineData(true, "{\"$id\":\"node\",\"Id\":1,\"Next\":{\"Id\":999,\"$ref\":\"node\"}}")]
+    [InlineData(false, "{\"$id\":\"node\",\"Id\":1,\"Next\":{\"Id\":999,\"$ref\":\"node\"}}")]
+    public void CustomReferenceHandlerReadsLateMetadata(bool dynamicConverters, string json)
+    {
+        var options = new JsonSerializerOptions { ReferenceHandler = new CustomReferenceHandler() };
+        var settings = new SystemTextJsonSerializerSettings(options)
+        {
+            AllowDynamicGenericConverters = dynamicConverters
+        };
+
+        var result = Json.JsonSerializer.Deserialize<Node>(json, settings);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result.Id);
+        Assert.Same(result, result.Next);
+    }
+
     private sealed class CustomReferenceHandler : ReferenceHandler
     {
         public override System.Text.Json.Serialization.ReferenceResolver CreateResolver()
