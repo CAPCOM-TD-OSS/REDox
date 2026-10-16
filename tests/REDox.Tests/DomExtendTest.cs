@@ -245,6 +245,20 @@ public class DomExtendTest
     }
 
     [Fact]
+    public void JoinFirstElementOfUnmodifiedContainerTest()
+    {
+        var arr = new DArray(1, 2, 3);
+        var target = new DArray();
+        target.Add(arr[0]);
+        Assert.Equal("[1]", target.ToJsonString());
+
+        var obj = new DObject { { "A", 10 }, { "B", 20 } };
+        var target2 = new DObject();
+        target2.Add("X", obj["A"]);
+        Assert.Equal("""{"X":10}""", target2.ToJsonString());
+    }
+
+    [Fact]
     public void ReplaceTest2()
     {
         var arr = DValue.From(new[] { 1, 2, 3 });

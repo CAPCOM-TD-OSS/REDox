@@ -820,16 +820,6 @@ public abstract partial class Document
             }
         }
 
-        if (value.Payload == 0)
-        {
-            if (value.Instance == null)
-            {
-                return ExtendLiteralToken(tokenId, DToken.MakeExtendLiteral(DTokenVariant.Null, 0));
-            }
-
-            return SerializeToTokens(tokenId, value.Instance, value.Instance.GetType(), Settings);
-        }
-
         if (value.Instance is Document document)
         {
             return JoinElement(tokenId, new DElement(document, (uint)value.Payload));
@@ -838,6 +828,16 @@ public abstract partial class Document
         if (value.Instance is DContainer container)
         {
             return JoinElement(tokenId, new DElement(container.Document, value.GetContainerValueId(container)));
+        }
+
+        if (value.Payload == 0)
+        {
+            if (value.Instance == null)
+            {
+                return ExtendLiteralToken(tokenId, DToken.MakeExtendLiteral(DTokenVariant.Null, 0));
+            }
+
+            return SerializeToTokens(tokenId, value.Instance, value.Instance.GetType(), Settings);
         }
 
         return ExtendToken(tokenId, new DToken(value.Payload).Variant, value.Instance);
