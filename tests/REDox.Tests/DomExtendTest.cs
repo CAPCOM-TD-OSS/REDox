@@ -144,6 +144,7 @@ public class DomExtendTest
 
         var obj2 = JsonSerializer.Deserialize<DObject>(json);
 
+        Assert.NotNull(obj2);
         Assert.Equal(obj.ToJsonString(), obj2.ToJsonString());
 
         var map = new DMap();
@@ -154,6 +155,7 @@ public class DomExtendTest
 
         var map2 = JsonSerializer.Deserialize<DMap>(json2);
 
+        Assert.NotNull(map2);
         Assert.Equal(map.ToJsonString(), map2.ToJsonString());
 
         var arr = new DArray(1, "A", true);
@@ -162,6 +164,7 @@ public class DomExtendTest
 
         var arr2 = JsonSerializer.Deserialize<DArray>(json3);
 
+        Assert.NotNull(arr2);
         Assert.Equal(arr.ToJsonString(), arr2.ToJsonString());
 
         var v = DValue.Create(123);
