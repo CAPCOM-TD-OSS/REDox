@@ -169,7 +169,7 @@ public sealed partial class DArray : DContainer, IList<DValue>
                 throw new ArgumentOutOfRangeException(nameof(index));
             }
 
-            return new DValue(this, _values[index], index);
+            return new DValue(this, index);
         }
         set
         {
@@ -242,6 +242,7 @@ public sealed partial class DArray : DContainer, IList<DValue>
         }
 
         _count = 0;
+        IncrementVersion();
     }
 
     public void RemoveAt(int index)
@@ -257,6 +258,7 @@ public sealed partial class DArray : DContainer, IList<DValue>
         _values.AsSpan().Slice(index + 1, _count - index - 1)
             .CopyTo(_values.AsSpan().Slice(index, _count - index - 1));
         _count--;
+        IncrementVersion();
     }
 
     IEnumerator IEnumerable.GetEnumerator()
@@ -292,6 +294,7 @@ public sealed partial class DArray : DContainer, IList<DValue>
         }
 
         (_values[index1], _values[index2]) = (_values[index2], _values[index1]);
+        IncrementVersion();
     }
 
     protected internal override DValue GetValue(int index)
@@ -344,6 +347,7 @@ public sealed partial class DArray : DContainer, IList<DValue>
         _values.AsSpan().Slice(index + count, _count - index - count)
             .CopyTo(_values.AsSpan().Slice(index, _count - index - count));
         _count -= count;
+        IncrementVersion();
     }
 
     public Enumerator GetEnumerator()
@@ -440,6 +444,7 @@ public sealed partial class DArray : DContainer, IList<DValue>
         _values.AsSpan().Slice(index, _count - index).CopyTo(_values.AsSpan(index + 1, _count - index));
         _values[index] = tokenId;
         _count++;
+        IncrementVersion();
     }
 
     internal uint GetValueInternal(int index)

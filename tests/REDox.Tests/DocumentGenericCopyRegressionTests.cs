@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
+﻿// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
@@ -155,7 +155,6 @@ public sealed class DocumentGenericCopyRegressionTests
         // Inserting before the replacement also changes the old container index.
         array.Insert(0, 0);
         Assert.False(removed.IsValid);
-        Assert.Equal((uint)removed.Payload, array[2].AsElement().Id);
 
         Assert.Throws<ObjectDisposedException>(() =>
         {

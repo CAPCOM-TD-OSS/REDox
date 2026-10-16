@@ -608,7 +608,7 @@ public class DomExtendTest
 
             arr.RemoveAt(1);
 
-            Assert.True(element0.IsValid);
+            Assert.False(element0.IsValid);
             Assert.False(element1.IsValid);
             Assert.False(element2.IsValid);
 

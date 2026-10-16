@@ -12,6 +12,7 @@ public abstract class DContainer : IDoxNode
 {
     protected int _count;
     protected DElement _element;
+    private int _version;
 
     internal DContainer()
     {
@@ -84,20 +85,18 @@ public abstract class DContainer : IDoxNode
         _element = default;
     }
 
+    internal int Version => _version;
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal bool ValidateValue(int index, uint valueId)
+    protected void IncrementVersion()
     {
-        if ((uint)index >= _count)
-        {
-            return false;
-        }
+        _version++;
+    }
 
-        if (!IsValid)
-        {
-            return false;
-        }
-
-        return GetValueElement(index).Id == valueId;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool ValidateValue(int version)
+    {
+        return _version == version && IsValid;
     }
 
     public T To<T>(T target)
@@ -143,6 +142,7 @@ public abstract class DContainer : IDoxNode
 
     internal virtual void Release()
     {
+        _version++;
         _element = default;
     }
 

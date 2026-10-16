@@ -112,7 +112,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
             if (propertyName != null)
             {
                 yield return new KeyValuePair<string, DValue>(propertyName,
-                    new DValue(this, _values[i].Value, i));
+                    new DValue(this, i));
             }
         }
     }
@@ -143,7 +143,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
             return false;
         }
 
-        return new DValue(this, _values[index].Value, index).Equals(keyValuePair.Value);
+        return new DValue(this, index).Equals(keyValuePair.Value);
     }
 
     void ICollection<KeyValuePair<string, DValue>>.CopyTo(KeyValuePair<string, DValue>[] keyValuePair,
@@ -200,7 +200,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
             return false;
         }
 
-        if (!new DValue(this, _values[index].Value, index).Equals(keyValuePair.Value))
+        if (!new DValue(this, index).Equals(keyValuePair.Value))
         {
             return false;
         }
@@ -229,7 +229,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
 
             if (index >= 0)
             {
-                return new DValue(this, _values[index].Value, index);
+                return new DValue(this, index);
             }
 
             throw new KeyNotFoundException(key);
@@ -281,6 +281,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         }
 
         _count = 0;
+        IncrementVersion();
 
         _buckets = null;
         _indexedCount = -1;
@@ -312,7 +313,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
             return false;
         }
 
-        value = new DValue(this, _values[index].Value, index);
+        value = new DValue(this, index);
         return true;
     }
 
@@ -322,7 +323,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, (uint)_count, nameof(index));
 
         return new KeyValuePair<string, DValue>(GetPropertyName(index) ?? string.Empty,
-            new DValue(this, _values[index].Value, index));
+            new DValue(this, index));
     }
 
 
@@ -592,6 +593,7 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         _values.AsSpan().Slice(index + 1, _count - index - 1)
             .CopyTo(_values.AsSpan().Slice(index, _count - index - 1));
         _values[--_count] = default;
+        IncrementVersion();
 
         _buckets = null;
         _indexedCount = -1;

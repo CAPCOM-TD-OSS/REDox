@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
+﻿// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
@@ -37,7 +37,7 @@ public sealed class ContainerSwapTests
         Assert.Equal(capacity, array.Capacity);
         Assert.Equal(new[] { elements[2], elements[1], elements[0] }, root.EnumerateArray());
         Assert.False(first.IsValid);
-        Assert.True(middle.IsValid);
+        Assert.False(middle.IsValid);
         Assert.False(last.IsValid);
         Assert.True(child.IsValid);
         Assert.Equal("$[2].leaf", leaf.AsValue().GetPath());
@@ -84,7 +84,7 @@ public sealed class ContainerSwapTests
         Assert.Equal(capacity, map.Capacity);
         Assert.Equal(new[] { entries[2], entries[1], entries[0] }, root.EnumerateMap());
         Assert.False(positionalValues[0].IsValid);
-        Assert.True(positionalValues[1].IsValid);
+        Assert.False(positionalValues[1].IsValid);
         Assert.False(positionalValues[2].IsValid);
         Assert.True(child.IsValid);
         Assert.Equal("$.a.leaf", leaf.AsValue().GetPath());

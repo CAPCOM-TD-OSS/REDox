@@ -172,9 +172,8 @@ public sealed class DomTest
 
         array.Add(999);
 
-        // DValue represents the slot, not the identity of the old value.
-        Assert.True(slot.IsValid);
-        Assert.Equal(999, slot.AsElement().GetInt32());
+        // DValue is bound to the container version; structural changes invalidate it permanently.
+        Assert.False(slot.IsValid);
     }
 
     [Fact]

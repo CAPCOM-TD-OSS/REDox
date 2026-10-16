@@ -116,7 +116,7 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
         for (var i = 0; i < _count; i++)
         {
             yield return new KeyValuePair<DValue, DValue>(new DValue(Document, _values[i].Key),
-                new DValue(this, _values[i].Value, i));
+                new DValue(this, i));
         }
     }
 
@@ -149,7 +149,7 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
         for (var i = 0; i < _count; i++)
         {
             keyValuePair[index + i] = new KeyValuePair<DValue, DValue>(new DValue(doc, _values[i].Key),
-                new DValue(this, _values[i].Value, i));
+                new DValue(this, i));
         }
     }
 
@@ -185,6 +185,7 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
 
         _values.AsSpan(0, _count).Clear();
         _count = 0;
+        IncrementVersion();
     }
 
     IEnumerator IEnumerable.GetEnumerator()
@@ -243,9 +244,10 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
         _values.AsSpan().Slice(index + 1, _count - index - 1)
             .CopyTo(_values.AsSpan().Slice(index, _count - index - 1));
         _values[--_count] = default;
+        IncrementVersion();
     }
 
-    /// <summary>Exchanges two entries without copying or replacing their keys or values.</summary>
+    /// <summary>Exchanges two entries
     /// <remarks>
     ///     Trivia remains attached to its existing tokens. Swapping an entry with itself has no effect.
     ///     Position-bound values for moved entries become invalid; token-based references remain valid.
@@ -272,6 +274,7 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
         }
 
         (_values[index1], _values[index2]) = (_values[index2], _values[index1]);
+        IncrementVersion();
     }
 
     protected internal override DElement GetKeyElement(int index)
@@ -411,6 +414,7 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
             .CopyTo(_values.AsSpan(index + 1, _count - index));
         _values[index] = new KeyValuePair<uint, uint>(keyId, valueId);
         _count++;
+        IncrementVersion();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

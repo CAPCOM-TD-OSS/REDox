@@ -837,7 +837,7 @@ public abstract partial class Document
 
         if (value.Instance is DContainer container)
         {
-            return JoinElement(tokenId, new DElement(container.Document, (uint)value.Payload));
+            return JoinElement(tokenId, new DElement(container.Document, value.GetContainerValueId(container)));
         }
 
         return ExtendToken(tokenId, new DToken(value.Payload).Variant, value.Instance);

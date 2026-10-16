@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
+﻿// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
@@ -227,15 +227,14 @@ public sealed class DValueValidityRegressionTests
         array.RemoveAt(1);
         Assert.False(slot.IsValid);
         array.Add(99);
-        Assert.True(slot.IsValid);
-        Assert.Equal(99, slot.AsElement().GetInt32());
+        Assert.False(slot.IsValid);
         Assert.True(array.AsValue().AsArray().IsValid);
 
         var obj = new DObject { { "keep", 1 }, { "drop", 2 } };
         var keep = obj["keep"];
         obj.Remove("drop");
-        Assert.True(keep.IsValid);
-        Assert.Equal(1, keep.AsElement().GetInt32());
+        Assert.False(keep.IsValid);
+        Assert.Equal(1, obj["keep"].AsElement().GetInt32());
         Assert.True(obj.AsValue().AsObject().IsValid);
         var map = new DMap();
         Assert.True(map.AsValue().AsMap().IsValid);
