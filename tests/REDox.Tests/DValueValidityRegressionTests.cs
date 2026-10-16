@@ -23,7 +23,8 @@ public sealed class DValueValidityRegressionTests
                  {
                      "element", "implicitElement", "container", "array", "object", "map",
                      "arrayIndexer", "objectIndexer", "root", "parent", "clone", "deserialize",
-                     "deserializeObject", "trivia", "integerCopy", "nullableIntegerCopy"
+                     "deserializeObject", "trivia", "integerCopy", "nullableIntegerCopy",
+                     "boolCast", "doubleCast", "stringCast", "decimalCast", "floatCast"
                  })
         {
             cases.Add(source, operation);
@@ -259,6 +260,11 @@ public sealed class DValueValidityRegressionTests
             "deserialize" => value.To<DValue>(),
             "deserializeObject" => value.ToObject(typeof(DValue)),
             "trivia" => value.LeadingTrivia,
+            "boolCast" => (bool)value,
+            "doubleCast" => (double)value,
+            "stringCast" => (string?)value,
+            "decimalCast" => (decimal)value,
+            "floatCast" => (float)value,
             "integerCopy" => DValue.Create((int)value),
             "nullableIntegerCopy" => DValue.Create((int?)value),
             _ => throw new ArgumentOutOfRangeException(nameof(operation))

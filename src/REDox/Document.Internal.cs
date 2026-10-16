@@ -2486,7 +2486,6 @@ public abstract partial class Document
             $"Cannot convert value {new DElement(this, tokenId)} to {typeof(DateTimeOffset)}");
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal bool TryGetDecimalExact(uint tokenId, out decimal value)
     {
         var token = GetToken(tokenId);
@@ -2554,7 +2553,6 @@ public abstract partial class Document
     }
 
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal decimal GetDecimalValue(uint tokenId)
     {
         if (TryGetDecimalExact(tokenId, out var value))
