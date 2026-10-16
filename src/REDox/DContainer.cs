@@ -146,9 +146,9 @@ public abstract class DContainer : IDoxNode
         _element = default;
     }
 
-    protected internal abstract DElement GetKeyElement(int index);
+    protected internal abstract uint GetKeyId(int index);
 
-    protected internal abstract DElement GetValueElement(int index);
+    protected internal abstract uint GetValueId(int index);
 
     protected internal abstract DValue GetValue(int index);
 

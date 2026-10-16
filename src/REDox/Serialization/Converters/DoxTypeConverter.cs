@@ -201,7 +201,7 @@ sealed class DoxTypeConverter : DataConverterFactory
                         {
                             if ((index & 1) == 0)
                             {
-                                var keyElement = node.GetKeyElement(index / 2);
+                                var keyElement = new DElement(node.Document, node.GetKeyId(index / 2));
                                 var keyToken = keyElement.Token;
 
                                 if (requiresStringKeys)
@@ -230,7 +230,7 @@ sealed class DoxTypeConverter : DataConverterFactory
                             }
                             else
                             {
-                                tokenId = node.GetValueElement(index / 2).Id;
+                                tokenId = node.GetValueId(index / 2);
                             }
 
                             index++;

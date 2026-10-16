@@ -277,14 +277,14 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
         IncrementVersion();
     }
 
-    protected internal override DElement GetKeyElement(int index)
+    protected internal override uint GetKeyId(int index)
     {
-        return new DElement(Document, _values[index].Key);
+        return _values[index].Key;
     }
 
-    protected internal override DElement GetValueElement(int index)
+    protected internal override uint GetValueId(int index)
     {
-        return new DElement(Document, _values[index].Value);
+        return _values[index].Value;
     }
 
     public DMap DeepClone()

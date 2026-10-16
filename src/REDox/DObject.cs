@@ -569,14 +569,14 @@ public sealed partial class DObject : DContainer, IDictionary<string, DValue>
         return Document.GetElementMap(_element.Id);
     }
 
-    protected internal override DElement GetKeyElement(int index)
+    protected internal override uint GetKeyId(int index)
     {
-        return new DElement(Document, _values[index].Key);
+        return _values[index].Key;
     }
 
-    protected internal override DElement GetValueElement(int index)
+    protected internal override uint GetValueId(int index)
     {
-        return new DElement(Document, _values[index].Value);
+        return _values[index].Value;
     }
 
     private void RemoveAt(int index)

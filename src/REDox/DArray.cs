@@ -307,14 +307,14 @@ public sealed partial class DArray : DContainer, IList<DValue>
         Document.JoinValue(_values[index], value);
     }
 
-    protected internal override DElement GetKeyElement(int index)
+    protected internal override uint GetKeyId(int index)
     {
         throw new NotSupportedException();
     }
 
-    protected internal override DElement GetValueElement(int index)
+    protected internal override uint GetValueId(int index)
     {
-        return new DElement(Document, _values[index]);
+        return _values[index];
     }
 
     public void RemoveRange(int index, int count)

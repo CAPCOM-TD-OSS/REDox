@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
+﻿// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
@@ -64,7 +64,7 @@ public readonly partial struct DValue : IDoxNode, IEquatable<DValue>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal uint GetContainerValueId(DContainer container)
     {
-        return container.GetValueElement((int)(Payload >> 32)).Id;
+        return container.GetValueId((int)(Payload >> 32));
     }
 
     internal DValue(Document doc, uint id)

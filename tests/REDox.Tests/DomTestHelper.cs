@@ -29,14 +29,14 @@ public static class DomTestHelper
 
                         if (container is DArray)
                         {
-                            output.Write(container.GetValueElement(i).Id.ToString()!);
+                            output.Write(container.GetValueId(i).ToString()!);
                         }
                         else
                         {
                             output.Write("{");
-                            output.Write(container.GetKeyElement(i).Id.ToString()!);
+                            output.Write(container.GetKeyId(i).ToString()!);
                             output.Write(",");
-                            output.Write(container.GetValueElement(i).Id.ToString()!);
+                            output.Write(container.GetValueId(i).ToString()!);
                             output.Write("}");
                         }
                     }

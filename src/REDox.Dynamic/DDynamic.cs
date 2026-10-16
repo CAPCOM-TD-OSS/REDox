@@ -182,7 +182,7 @@ public sealed class DDynamic : DynamicObject, IDoxNode
 
         if (_container is DArray arr && int.TryParse(binder.Name, out var index))
         {
-            result = ToValue(arr.GetValueElement(index));
+            result = ToValue(new DElement(arr.Document, arr.GetValueId(index)));
             return true;
         }
 
@@ -217,7 +217,7 @@ public sealed class DDynamic : DynamicObject, IDoxNode
 
         if (_container is DArray arr)
         {
-            result = ToValue(arr.GetValueElement((int)indexes[0]));
+            result = ToValue(new DElement(arr.Document, arr.GetValueId((int)indexes[0])));
             return true;
         }
 
@@ -260,7 +260,7 @@ public sealed class DDynamic : DynamicObject, IDoxNode
     {
         for (var i = 0; i < arr.Count; i++)
         {
-            yield return ToValue(arr.GetValueElement(i));
+            yield return ToValue(new DElement(arr.Document, arr.GetValueId(i)));
         }
     }
 
@@ -274,7 +274,7 @@ public sealed class DDynamic : DynamicObject, IDoxNode
 
             if (key != null)
             {
-                var value = obj.GetValueElement(i);
+                var value = new DElement(obj.Document, obj.GetValueId(i));
 
                 yield return new KeyValuePair<string, object?>(key, ToValue(value));
             }
@@ -296,7 +296,7 @@ public sealed class DDynamic : DynamicObject, IDoxNode
                 var list = new object?[arr.Count];
                 for (var i = 0; i < arr.Count; i++)
                 {
-                    list[i] = ToValue(arr.GetValueElement(i));
+                    list[i] = ToValue(new DElement(arr.Document, arr.GetValueId(i)));
                 }
 
                 result = list;
