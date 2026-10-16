@@ -245,6 +245,35 @@ public sealed partial class DMap : DContainer, IList<KeyValuePair<DValue, DValue
         _values[--_count] = default;
     }
 
+    /// <summary>Exchanges two entries without copying or replacing their keys or values.</summary>
+    /// <remarks>
+    ///     Trivia remains attached to its existing tokens. Swapping an entry with itself has no effect.
+    ///     Position-bound values for moved entries become invalid; token-based references remain valid.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">Either index is outside the map.</exception>
+    /// <exception cref="ObjectDisposedException">The map is no longer valid.</exception>
+    public void Swap(int index1, int index2)
+    {
+        ThrowIfInvalid();
+
+        if ((uint)index1 >= _count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index1));
+        }
+
+        if ((uint)index2 >= _count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index2));
+        }
+
+        if (index1 == index2)
+        {
+            return;
+        }
+
+        (_values[index1], _values[index2]) = (_values[index2], _values[index1]);
+    }
+
     protected internal override DElement GetKeyElement(int index)
     {
         return new DElement(Document, _values[index].Key);
