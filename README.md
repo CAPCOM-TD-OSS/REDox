@@ -1,5 +1,9 @@
 ﻿# RE:Dox
 
+[![Build and Test](https://github.com/CAPCOM-TD-OSS/REDox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/CAPCOM-TD-OSS/REDox/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/CAPCOM.REDox.svg)](https://www.nuget.org/packages/CAPCOM.REDox)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 ## 1. What is RE:Dox?
 
 **RE:Dox** is a high-performance, token-based structured data engine for .NET, developed as one of the core components of **'REX' Technology** for CAPCOM's next-generation game engine.
