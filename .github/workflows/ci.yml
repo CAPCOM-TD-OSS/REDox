@@ -1,0 +1,37 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  build-test:
+    name: Build + Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # tests read test suites from external/
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - run: dotnet restore REDox.slnx
+
+      - run: dotnet build REDox.slnx -c Release --no-restore -p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        run: dotnet test REDox.slnx -c Release --no-build
